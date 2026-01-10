@@ -44,14 +44,8 @@ def save_data(df, worksheet_name):
 
 def image_to_base64(pil_img):
     """แปลงรูปภาพเป็นตัวหนังสือ Base64 เพื่อเก็บใน Google Sheets"""
-    # 1. แปลงเป็น RGB
     pil_img = pil_img.convert('RGB')
-    
-    # 2. ย่อขนาดให้เล็กลง (สำคัญมาก! ต้องไม่เกินขีดจำกัดของ Cell)
-    # ขนาด 300x300 กำลังดีสำหรับดูในมือถือและไม่หนัก Sheets
-    pil_img.thumbnail((300, 300)) 
-    
-    # 3. แปลงเป็นตัวหนังสือ
+    pil_img.thumbnail((300, 300)) # ย่อรูปให้เบา
     buffered = BytesIO()
     pil_img.save(buffered, format="JPEG", quality=80)
     img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -64,7 +58,7 @@ with st.sidebar:
         menu_title=None,
         options=["Dashboard", "Transactions", "Inventory"],
         icons=["grid-1x2", "wallet", "box-seam-fill"], 
-        default_index=0,
+        default_index=2, # เริ่มต้นที่หน้า Inventory จะได้ลองเพิ่มของก่อน
     )
 
 # --- Load Data ---
@@ -80,21 +74,33 @@ if df_prod.empty:
 # === PAGE: DASHBOARD ===
 if selected == "Dashboard":
     st.markdown("### 👋 Overview")
+    
+    # คำนวณรายรับรายจ่าย
     if not df_trans.empty:
         inc = df_trans[df_trans['type']=='รายรับ']['amount'].sum()
         exp = df_trans[df_trans['type']=='รายจ่าย']['amount'].sum()
     else: inc, exp = 0, 0
 
+    # คำนวณยอดขายสินค้า (แก้บั๊กตรงนี้ให้แล้วครับ)
     if not df_prod.empty:
         sold = df_prod[df_prod['status']=='Sold']
-        profit_clothes = sold['actual_sold_price'].sum() - sold['cost_price'].sum()
+        revenue = sold['actual_sold_price'].sum()     # ยอดขายรวม
+        cost_sold = sold['cost_price'].sum()          # ต้นทุนของที่ขายไป
+        profit_clothes = revenue - cost_sold          # กำไรจากเสื้อผ้า
+        
         stock_val = df_prod[df_prod['status']=='Available']['cost_price'].sum()
         sold_count = len(sold)
-    else: profit_clothes, stock_val, sold_count = 0, 0, 0
+    else: 
+        revenue, cost_sold, profit_clothes, stock_val, sold_count = 0, 0, 0, 0, 0
+
+    # คำนวณเงินสดคงเหลือ: เงินเข้า (รายรับ+ขายของ) - เงินออก (รายจ่าย)
+    # *สมมติว่าต้นทุนเสื้อผ้าจ่ายไปแล้วตอนซื้อมา ถ้านับแบบ Cash Flow ต้องระวังเรื่อง double counting
+    # แต่สูตรนี้คือ: เงินที่มี = (รายรับอื่น + ยอดขายเสื้อ) - รายจ่ายทั่วไป
+    net_cash = (inc + revenue) - exp
 
     col1, col2, col3 = st.columns(3)
     col1.metric("✨ Net Profit (Clothes)", f"฿ {profit_clothes:,.0f}", f"{sold_count} items")
-    col2.metric("💵 Cash Balance", f"฿ {(inc + profit_clothes + sold['cost_price'].sum()) - exp:,.0f}")
+    col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
     col3.metric("📦 Stock Value", f"฿ {stock_val:,.0f}")
 
 # === PAGE: TRANSACTIONS ===
@@ -106,10 +112,11 @@ elif selected == "Transactions":
         d_type = c2.selectbox("Type", ["รายจ่าย", "รายรับ"])
         d_title = c3.text_input("Title")
         d_amt = c4.number_input("Amount", min_value=0.0)
-        if st.form_submit_button("Add Entry"):
+        if st.form_submit_button("Add Entry", type="primary"):
             new_row = pd.DataFrame([{'date': str(d_date), 'type': d_type, 'title': d_title, 'amount': d_amt}])
             updated_df = pd.concat([df_trans, new_row], ignore_index=True)
             save_data(updated_df, "transactions")
+            st.toast("Saved!")
             st.rerun()
 
     if not df_trans.empty:
@@ -132,6 +139,7 @@ elif selected == "Inventory":
 
             if items.empty: st.caption("No items.")
             
+            # Loop แสดงสินค้า
             for i in range(0, len(items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(items.iloc[i:i+2].itertuples()):
@@ -150,10 +158,13 @@ elif selected == "Inventory":
                             
                             with st.popover("⚡ Sell", use_container_width=True):
                                 actual_p = st.number_input("Sold Price", value=float(row.sell_price), key=f"p_{row.product_id}")
-                                if st.button("Confirm", key=f"b_{row.product_id}"):
+                                if st.button("Confirm", key=f"b_{row.product_id}", type="primary"):
                                     df_prod.loc[df_prod['product_id'] == row.product_id, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
                                     save_data(df_prod, "products")
+                                    st.toast(f"Sold {row.name}!")
                                     st.rerun()
+        else:
+            st.info("Stock is empty. Go to 'Add Item' tab.")
     
     # --- TAB: ADD ITEM ---
     with tab_add:
@@ -165,7 +176,7 @@ elif selected == "Inventory":
             image = ImageOps.exif_transpose(image)
             st.image(image, caption="Preview", width=200)
 
-        with st.form("add_prod"):
+        with st.form("add_prod", clear_on_submit=True):
             c1, c2 = st.columns(2)
             nid = c1.text_input("ID")
             nname = c2.text_input("Name")
@@ -198,3 +209,5 @@ elif selected == "Inventory":
             if not sold_items.empty:
                 sold_items['profit'] = sold_items['actual_sold_price'] - sold_items['cost_price']
                 st.dataframe(sold_items[['sold_date','name','actual_sold_price','profit']], use_container_width=True, hide_index=True)
+            else:
+                st.caption("No sales yet.")
