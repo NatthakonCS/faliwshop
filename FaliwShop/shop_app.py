@@ -5,7 +5,7 @@ from datetime import datetime
 from PIL import Image, ImageOps
 from streamlit_option_menu import option_menu
 import io
-from medical_gsheets_connection import GSheetsConnection
+from streamlit_gsheets import GSheetsConnection
 
 # 1. สร้างการเชื่อมต่อ
 conn = st.connection("gsheets", type=GSheetsConnection)
