@@ -51,15 +51,7 @@ if not os.path.exists(IMAGE_FOLDER):
     os.makedirs(IMAGE_FOLDER)
 
 # --- Database ---
-def init_db():
-    conn = sqlite3.connect('myshop.db')
-    c = conn.cursor()
-    c.execute('CREATE TABLE IF NOT EXISTS transactions (id INTEGER PRIMARY KEY, date TEXT, type TEXT, title TEXT, amount REAL)')
-    c.execute('CREATE TABLE IF NOT EXISTS products (product_id TEXT PRIMARY KEY, name TEXT, image_path TEXT, sell_price REAL, discount_price REAL, cost_price REAL, status TEXT, actual_sold_price REAL, sold_date TEXT)')
-    conn.commit()
-    return conn
 
-conn = init_db()
 
 # --- Image Processing Functions (New!) ---
 def make_square_and_resize(pil_img, target_size=800):
