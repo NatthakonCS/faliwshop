@@ -11,7 +11,7 @@ from streamlit_gsheets import GSheetsConnection
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # 2. วิธีอ่านข้อมูล (แทน SQL SELECT)
-data = conn.read(spreadsheet="URL_ของ_GOOGLE_SHEET_ฟิว", worksheet="Sheet1")
+data = conn.read(spreadsheet="https://docs.google.com/spreadsheets/d/1a452nupXAJ_wLEJIE3NOd1bAJTqerphJfqUUhelq1ZY/edit?usp=sharing", worksheet="ชีต1")
 
 # 3. วิธีเพิ่มข้อมูล (แทน SQL INSERT)
 # สมมติฟิวมี DataFrame ใหม่ชื่อ new_data
