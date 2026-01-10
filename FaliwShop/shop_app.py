@@ -53,7 +53,7 @@ def image_to_base64(pil_img):
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("## 🛍️ FALIW SHOP")
+    st.markdown("##  FALIW SHOP")
     selected = option_menu(
         menu_title=None,
         options=["Dashboard", "Transactions", "Inventory"],
