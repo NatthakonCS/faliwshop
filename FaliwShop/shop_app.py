@@ -1,11 +1,22 @@
 import streamlit as st
-import sqlite3
 import pandas as pd
 import os
 from datetime import datetime
 from PIL import Image, ImageOps
 from streamlit_option_menu import option_menu
 import io
+from medical_gsheets_connection import GSheetsConnection
+
+# 1. สร้างการเชื่อมต่อ
+conn = st.connection("gsheets", type=GSheetsConnection)
+
+# 2. วิธีอ่านข้อมูล (แทน SQL SELECT)
+data = conn.read(spreadsheet="URL_ของ_GOOGLE_SHEET_ฟิว", worksheet="Sheet1")
+
+# 3. วิธีเพิ่มข้อมูล (แทน SQL INSERT)
+# สมมติฟิวมี DataFrame ใหม่ชื่อ new_data
+# updated_df = pd.concat([data, new_data], ignore_index=True)
+# conn.update(spreadsheet="URL_ของ_GOOGLE_SHEET_ฟิว", data=updated_df)
 
 # --- 1. Setup หน้าเว็บ ---
 st.set_page_config(page_title="Shop Manager", layout="wide")
