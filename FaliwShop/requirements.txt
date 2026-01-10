@@ -2,3 +2,4 @@ streamlit
 pandas
 Pillow
 streamlit-option-menu
+st-gsheets-connection
