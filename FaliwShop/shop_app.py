@@ -8,7 +8,7 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 # --- Setup หน้าเว็บ ---
-st.set_page_config(page_title="Shop Manager", layout="wide")
+st.set_page_config(page_title="Faliw Manager", layout="wide")
 
 # 🟢 ใส่ URL Google Sheets ของฟิวตรงนี้
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1a452nupXAJ_wLEJIE3NOd1bAJTqerphJfqUUhelq1ZY/edit?usp=sharing"
@@ -53,7 +53,7 @@ def image_to_base64(pil_img):
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("##  FALIW SHOP")
+    st.markdown("##  FALIW MANAGER")
     selected = option_menu(
         menu_title=None,
         options=["Dashboard", "Transactions", "Inventory"],
