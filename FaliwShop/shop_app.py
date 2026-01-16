@@ -29,7 +29,7 @@ def check_login():
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.markdown("<h2 style='text-align: center;'>🔐 FALIW SHOP ADMIN</h2>", unsafe_allow_html=True)
+        st.markdown("<h2 style='text-align: center;'>🔐 HIGHCLASS SHOP</h2>", unsafe_allow_html=True)
         with st.form("login_form"):
             user = st.text_input("Username", placeholder="User")
             pwd = st.text_input("Password", type="password", placeholder="Password")
@@ -97,7 +97,7 @@ def image_to_base64(pil_img):
 
 # --- Sidebar ---
 with st.sidebar:
-    st.markdown("## 🛍️ FALIW SHOP")
+    st.markdown("## 🛍️ HIGHCLASS SHOP")
     selected = option_menu(
         menu_title=None,
         # เพิ่ม "Sold Items" เข้าไปใน options และ icons
