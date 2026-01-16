@@ -10,29 +10,48 @@ from streamlit_gsheets import GSheetsConnection
 
 import qrcode
 
-# --- ฟังก์ชันสร้าง PromptPay Payload (แบบเขียนเอง ไม่ง้อ Library) ---
-def get_promptpay_payload(number, amount):
-    # 1. แปลงเบอร์โทร/เลขบัตร
-    target = number.replace("-", "").replace(" ", "")
-    if len(target) == 10: # เบอร์มือถือ
-        target = "0066" + target[1:]
+# --- ฟังก์ชันสร้าง PromptPay Payload (Standard EMVCo) ---
+def get_promptpay_payload(number, amount=None):
+    # 1. เตรียมเบอร์โทร หรือ เลขบัตรประชาชน
+    # ลบขีด ลบวรรค ออกให้หมด
+    target = str(number).replace("-", "").replace(" ", "").strip()
     
-    # 2. โครงสร้างข้อมูล PromptPay (TLV Standard)
+    target_type = ""
+    if len(target) == 10 and target.startswith("0"): 
+        # กรณีเบอร์มือถือ (08x...) -> ต้องแปลงเป็น 00668x...
+        target = "0066" + target[1:] 
+        target_type = "01" # 01 คือเบอร์มือถือ
+    elif len(target) == 13:
+        # กรณีเลขบัตรประชาชน -> ใช้ได้เลย
+        target_type = "02" # 02 คือเลขบัตรประชาชน
+    else:
+        # ถ้าเลขมั่วมา ให้คืนค่าว่างไปก่อน (กัน Error)
+        return "Error: Invalid Number"
+
+    # 2. ประกอบร่างข้อมูล (TLV: Tag-Length-Value)
+    # ID 29: Merchant Account Information (PromptPay AID)
+    # - 0016A000000677010111 (PromptPay ID)
+    # - 01xx (Mobile) หรือ 02xx (National ID)
+    f29_content = f"0016A000000677010111{target_type}{len(target):02}{target}"
+    
     data = [
-        "000201",       # 00: Payload Format
-        "010211",       # 01: Point of Initiation (11=Static, 12=Dynamic)
-        f"29370016A000000677010111011300{target}", # 29: Merchant ID
-        "5802TH",       # 58: Country
-        "5303764",      # 53: Currency THB
+        "000201",       # ID 00: Format
+        "010212",       # ID 01: Dynamic QR (12) หรือ Static (11)
+        f"29{len(f29_content):02}{f29_content}", # ID 29: ข้อมูลร้านค้า
+        "5802TH",       # ID 58: ประเทศไทย
+        "5303764",      # ID 53: สกุลเงิน THB
     ]
     
-    # 3. ใส่ยอดเงิน
-    if amount:
-        amt_str = f"{amount:.2f}"
+    # 3. ใส่ยอดเงิน (ถ้ามี)
+    if amount is not None:
+        # แปลงเป็นทศนิยม 2 ตำแหน่งเสมอ (เช่น 100 -> 100.00)
+        amt_str = f"{float(amount):.2f}"
         data.append(f"54{len(amt_str):02}{amt_str}")
     
-    # 4. คำนวณ CRC16 checksum
-    raw_data = "".join(data) + "6304"
+    # 4. รวมร่างเพื่อเตรียมคำนวณ Checksum
+    raw_data = "".join(data) + "6304" # ต่อท้ายด้วย ID 63
+    
+    # 5. คำนวณ CRC16 (CCITT) **หัวใจสำคัญของความจริง**
     crc = 0xFFFF
     for char in raw_data:
         crc ^= ord(char) << 8
@@ -40,7 +59,8 @@ def get_promptpay_payload(number, amount):
             if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
             else: crc <<= 1
             
-    return raw_data + f"{crc & 0xFFFF:04X}"
+    # คืนค่ารหัสพร้อมเพย์ที่สมบูรณ์
+    return raw_data + f"{crc & 0xFFFF:04X}".upper()
 
 # --- ฟังก์ชันสร้างใบเสร็จ (Receipt Generator) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
@@ -88,15 +108,18 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # --- 3. สร้าง QR Code (เรียกฟังก์ชันใหม่ของเรา) ---
-    my_promptpay_id = "0845833256" # 👈 อย่าลืมแก้เบอร์ตรงนี้นะครับ!
+    # --- 3. สร้าง QR Code ---
+    my_promptpay_id = "0812345678"  # 👈 ใส่เบอร์จริงฟิวตรงนี้ (หรือเลขบัตร ปชช ก็ได้)
     
-    # ตรงนี้ครับที่เปลี่ยน!! เรียกใช้ฟังก์ชันที่เราเขียนเองด้านบน
-    payload = get_promptpay_payload(my_promptpay_id, price) 
+    # เรียกใช้ฟังก์ชัน "ของจริง"
+    payload = get_promptpay_payload(my_promptpay_id, price)
     
-    qr = qrcode.make(payload).resize((250, 250))
-    qr_x = (width - 250) // 2
-    img.paste(qr, (qr_x, current_y))
+    # เช็กหน่อยว่าเบอร์ถูกมั้ย
+    if "Error" in payload:
+        d.text((50, current_y), "QR Error: Invalid Number", fill="red")
+    else:
+        qr = qrcode.make(payload).resize((250, 250))
+        # ... (แปะรูปตามปกติ) ...
     
     draw_centered_text(height - 80, "Thank You!", font_text)
     
