@@ -19,8 +19,8 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     
     # 2. เตรียม QR Code (เช่น ลิงก์ไป IG ร้าน หรือ PromptPay)
     # ตรงนี้ฟิวใส่ลิงก์ร้านตัวเอง หรือเลขบัญชีได้เลย
-    qr_data = f"https://instagram.com/highclass_shop" 
-    qr = qrcode.make(qr_data).resize((150, 150))
+    qr_data = f"0845833256" 
+    qr = qrcode.make(qr_data).resize((200, 200))
     
     # 3. วาดข้อความลงกระดาษ (ใช้ Default Font ไปก่อน กันสระลอย)
     # *หมายเหตุ: บน Cloud อาจจะแสดงภาษาไทยไม่ได้ ถ้าเป็นไปได้ใช้ชื่อสินค้าภาษาอังกฤษจะชัวร์สุด
