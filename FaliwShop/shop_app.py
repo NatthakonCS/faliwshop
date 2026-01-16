@@ -8,7 +8,7 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 # --- Setup หน้าเว็บ ---
-st.set_page_config(page_title="Faliw Manager", layout="wide")
+st.set_page_config(page_title="HIGHCLASS", layout="wide")
 
 # --- 🔐 SYSTEM: LOGIN (วางต่อจาก st.set_page_config) ---
 if 'logged_in' not in st.session_state:
