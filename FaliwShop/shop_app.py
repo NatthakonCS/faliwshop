@@ -73,7 +73,7 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
 
     # สร้าง QR Code
     # 🔴🔴🔴 แก้เบอร์ฟิวตรงนี้ !!! 🔴🔴🔴
-    my_promptpay_id = "08xxxxxxxx" 
+    my_promptpay_id = "0845833256" 
     
     payload = qrop(my_promptpay_id, price)
     qr = qrcode.QRCode(version=1, box_size=8, border=4)
