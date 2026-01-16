@@ -327,7 +327,7 @@ elif selected == "Inventory":
             else:
                 st.caption("No sales yet.")
                 
-# === PAGE: SOLD ITEMS (หน้าใหม่!) ===
+# === PAGE: SOLD ITEMS (เพิ่มระบบดึงของกลับ) ===
 elif selected == "Sold Items":
     st.markdown("### ✅ Sold Out Gallery")
     
@@ -335,45 +335,66 @@ elif selected == "Sold Items":
     if not df_prod.empty:
         sold_items = df_prod[df_prod['status'] == 'Sold']
         
-        # ถ้าอยากให้เรียงจาก "ขายล่าสุด" ขึ้นก่อน
+        # เรียงจากขายล่าสุดก่อน
         if 'sold_date' in sold_items.columns:
             sold_items = sold_items.sort_values(by='sold_date', ascending=False)
 
         if sold_items.empty:
             st.info("ยังไม่มีสินค้าที่ขายออกไป สู้ๆ ครับ! ✌️")
         else:
-            # สรุปยอดรวมให้ดูเล่นๆ ด้านบน
+            # สรุปยอดรวม
             total_rev = sold_items['actual_sold_price'].sum()
             total_profit = total_rev - sold_items['cost_price'].sum()
             st.metric("🎉 Total Sales Volume", f"฿ {total_rev:,.0f}", f"Profit: ฿ {total_profit:,.0f}")
             st.divider()
 
-            # Loop แสดงสินค้าแบบ Grid (เหมือนหน้าร้าน แต่เป็นเวอร์ชันขายแล้ว)
+            # Loop แสดงสินค้า
             for i in range(0, len(sold_items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(sold_items.iloc[i:i+2].itertuples()):
                     with cols[idx]:
                         with st.container(border=True):
-                            # รูปภาพ (ขาวดำ หรือปกติก็ได้ แต่อันนี้เอาปกติให้ก่อน)
+                            # รูปภาพ
                             if pd.notna(row.image_base64) and str(row.image_base64).startswith('data:image'):
                                 st.image(row.image_base64, use_container_width=True)
                             else:
                                 st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
-                            st.caption(f"ID: {row.product_id} | 📂 {row.category if 'category' in df_prod.columns else '-'}")
+                            
+                            # เช็กว่ามีคอลัมน์ category ไหม (กัน Error)
+                            cat_show = row.category if 'category' in df_prod.columns else '-'
+                            st.caption(f"ID: {row.product_id} | 📂 {cat_show}")
                             
                             # ข้อมูลการขาย
                             c1, c2 = st.columns(2)
                             c1.markdown(f"💰 Sold: **{row.actual_sold_price:,.0f}**")
                             
-                            # คำนวณกำไรรายตัวโชว์เลย
                             profit = row.actual_sold_price - row.cost_price
                             if profit > 0:
-                                c2.markdown(f"🔥 Profit: <span style='color:green'>+{profit:,.0f}</span>", unsafe_allow_html=True)
+                                c2.markdown(f"🔥 <span style='color:green'>+{profit:,.0f}</span>", unsafe_allow_html=True)
                             else:
-                                c2.markdown(f"🔻 Profit: <span style='color:red'>{profit:,.0f}</span>", unsafe_allow_html=True)
+                                c2.markdown(f"🔻 <span style='color:red'>{profit:,.0f}</span>", unsafe_allow_html=True)
                             
-                            st.caption(f"📅 Date: {str(row.sold_date)[:16]}") # ตัดให้เหลือแค่วันที่และเวลา (ไม่เอาวินาที)
+                            st.caption(f"📅 {str(row.sold_date)[:16]}")
+                            
+                            # --- 🛠️ ส่วนที่เพิ่มใหม่: ปุ่มดึงของกลับ ---
+                            unique_key_sold = f"restore_{row.product_id}_{row.Index}"
+                            
+                            with st.popover("❌ Cancel / Restock", use_container_width=True):
+                                st.markdown(f"ดึง **{row.name}** กลับไปขายใหม่?")
+                                st.caption("⚠️ สินค้าจะกลับไปหน้า Shop และลบยอดขายนี้ออก")
+                                
+                                if st.button("ยืนยันดึงของกลับ", key=unique_key_sold, type="primary"):
+                                    # 1. แก้สถานะกลับเป็น Available
+                                    df_prod.at[row.Index, 'status'] = 'Available'
+                                    # 2. ล้างข้อมูลการขายทิ้ง
+                                    df_prod.at[row.Index, 'actual_sold_price'] = 0
+                                    df_prod.at[row.Index, 'sold_date'] = None
+                                    
+                                    # 3. บันทึกและรีเฟรช
+                                    save_data(df_prod, "products")
+                                    st.toast(f"Restored {row.name} to Shop!")
+                                    st.rerun()
     else:
         st.info("No data available.")
