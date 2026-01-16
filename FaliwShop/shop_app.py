@@ -30,7 +30,7 @@ def check_login():
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
         # โชว์โลโก้ในหน้า Login ด้วย (ถ้ามี)
-        try: st.image("logo.png", width=150)
+        try: st.image("FaliwShop/logo.png", width=150)
         except: st.markdown("<h2 style='text-align: center;'>🔐 HIGHCLASS SHOP</h2>", unsafe_allow_html=True)
         
         with st.form("login_form"):
@@ -94,7 +94,7 @@ def image_to_base64(pil_img):
 with st.sidebar:
     # พยายามโหลดรูป logo.png ถ้าไม่มีให้ขึ้นชื่อร้านแทน
     try:
-        st.image("logo.png", use_container_width=True)
+        st.image("FaliwShop/logo.png", use_container_width=True)
     except:
         st.markdown("## 🛍️ HIGHCLASS")
         st.caption("No logo found (Upload 'logo.png')")
