@@ -219,7 +219,7 @@ elif selected == "Transactions":
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
     
-    # --- 🧾 ส่วนโชว์ใบเสร็จ (วางตรงนี้!) ---
+    # --- 🧾 ส่วนโชว์ใบเสร็จ (วางไว้บนสุดของหน้านี้) ---
     if 'last_receipt' in st.session_state:
         with st.dialog("🧾 Payment Receipt"):
             st.image(st.session_state['last_receipt'], caption="Save รูปนี้ส่งให้ลูกค้าได้เลยครับ", use_container_width=True)
@@ -245,15 +245,12 @@ elif selected == "Inventory":
     # ----------------------------------------
 
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
-    # ... (โค้ด Inventory เดิมต่อจากตรงนี้) ...
     
     # --- TAB: SHOP ---
     with tab_sell:
-        # ตรวจสอบว่ามีคอลัมน์ category หรือยัง
         if 'category' not in df_prod.columns:
             df_prod['category'] = 'Uncategorized'
             
-        # 1. ตัวเลือกหมวดหมู่
         all_cats = ["All"] + sorted(df_prod[df_prod['status']=='Available']['category'].astype(str).unique().tolist())
         
         c_search, c_filter = st.columns([2, 1])
@@ -293,11 +290,11 @@ elif selected == "Inventory":
                             c2.markdown(f"📉 Floor: <span style='color:red'>{row.discount_price:,.0f}</span>", unsafe_allow_html=True)
                             st.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
                             
-                            # ปุ่มควบคุม (แบ่งเป็น 2 ปุ่ม: ขาย และ แก้ไข)
+                            # ปุ่มควบคุม
                             unique_key_suffix = f"{row.product_id}_{row.Index}"
                             b_sell, b_edit = st.columns(2)
                             
-                            # --- ปุ่มที่ 1: ขาย (SELL) ---
+                            # --- ปุ่มที่ 1: ขาย (SELL) พร้อมใบเสร็จ ---
                             with b_sell:
                                 with st.popover("⚡ Sell", use_container_width=True):
                                     st.markdown(f"Selling: **{row.name}**")
@@ -306,31 +303,31 @@ elif selected == "Inventory":
                                     if actual_p < row.cost_price: st.warning("⚠️ ขาดทุน!")
                                     elif actual_p < row.discount_price: st.warning("⚠️ ต่ำกว่า Floor!")
 
+                                    # จุดที่เคย Error คือตรงนี้ครับ (ตอนนี้แก้ให้แล้ว)
                                     if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
-                                    # 1. บันทึกข้อมูลลง Google Sheets ตามปกติ
-                                    df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
-                                    save_data(df_prod, "products")
-                                    
-                                    # 2. สร้างใบเสร็จทันที! (เรียกใช้ฟังก์ชันที่เพิ่งวางไปตอนขั้นตอนที่ 2)
-                                    receipt_img = create_receipt_image(
-                                        item_name=row.name,
-                                        price=actual_p,
-                                        date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
-                                    )
-                                    
-                                    # 3. เก็บใบเสร็จไว้ในความจำ (Session State) เพื่อรอเด้งโชว์
-                                    st.session_state['last_receipt'] = receipt_img
-                                    st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
-                                    
-                                    st.toast(f"Sold {row.name} & Receipt Generated!")
-                                    st.rerun()
+                                        # 1. บันทึก
+                                        df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
+                                        save_data(df_prod, "products")
+                                        
+                                        # 2. สร้างใบเสร็จ
+                                        receipt_img = create_receipt_image(
+                                            item_name=row.name,
+                                            price=actual_p,
+                                            date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
+                                        )
+                                        
+                                        # 3. เก็บใบเสร็จเพื่อโชว์
+                                        st.session_state['last_receipt'] = receipt_img
+                                        st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
+                                        
+                                        st.toast(f"Sold {row.name}!")
+                                        st.rerun()
 
                             # --- ปุ่มที่ 2: แก้ไข (EDIT) ---
                             with b_edit:
                                 with st.popover("✏️ Edit", use_container_width=True):
                                     st.markdown(f"**Edit: {row.name}**")
                                     with st.form(key=f"edit_form_{unique_key_suffix}"):
-                                        # ดึงค่าเก่ามาใส่รอไว้ (value=...)
                                         e_name = st.text_input("Name", value=row.name)
                                         e_cat = st.text_input("Category", value=row.category)
                                         
@@ -338,19 +335,15 @@ elif selected == "Inventory":
                                         e_cost = ec1.number_input("Cost", value=float(row.cost_price))
                                         e_sell = ec2.number_input("Sell", value=float(row.sell_price))
                                         e_floor = ec3.number_input("Floor", value=float(row.discount_price))
-                                        
-                                        # ถ้าอยากเปลี่ยนรูป (ถ้าไม่ใส่ คือใช้รูปเดิม)
-                                        e_img = st.file_uploader("Change Image (Optional)", type=['png','jpg','jpeg'])
+                                        e_img = st.file_uploader("Change Image", type=['png','jpg','jpeg'])
                                         
                                         if st.form_submit_button("Save Changes"):
-                                            # อัปเดตข้อมูลใน DataFrame
                                             df_prod.at[row.Index, 'name'] = e_name
                                             df_prod.at[row.Index, 'category'] = e_cat
                                             df_prod.at[row.Index, 'cost_price'] = e_cost
                                             df_prod.at[row.Index, 'sell_price'] = e_sell
                                             df_prod.at[row.Index, 'discount_price'] = e_floor
                                             
-                                            # ถ้ามีการอัปโหลดรูปใหม่ ให้แปลงและบันทึกทับ
                                             if e_img:
                                                 new_image = Image.open(e_img)
                                                 new_image = ImageOps.exif_transpose(new_image)
@@ -359,7 +352,6 @@ elif selected == "Inventory":
                                             save_data(df_prod, "products")
                                             st.success("Updated!")
                                             st.rerun()
-
         else:
             st.info("Stock is empty.")
     
