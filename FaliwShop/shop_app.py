@@ -5,6 +5,7 @@ from io import BytesIO
 from datetime import datetime
 from PIL import Image, ImageOps
 from PIL import ImageDraw, ImageFont
+from promptpay import qrop
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
