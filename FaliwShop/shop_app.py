@@ -122,12 +122,12 @@ elif selected == "Transactions":
     if not df_trans.empty:
         st.dataframe(df_trans.sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-# === PAGE: INVENTORY ===
-elif selected == "Inventory":
+    # === PAGE: INVENTORY ===
+    elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
-    # --- TAB: SHOP ---
+        # --- TAB: SHOP ---
     with tab_sell:
         q = st.text_input("Search", placeholder="🔍 ID or Name...", label_visibility="collapsed")
         
@@ -156,15 +156,20 @@ elif selected == "Inventory":
                             c1.markdown(f"🏷️ **{row.sell_price:,.0f}**")
                             c2.caption(f"ID: {row.product_id}")
                             
+                            # สร้าง Key แบบพิเศษ: รหัสสินค้า + เลขลำดับแถว (row.Index) เพื่อไม่ให้ซ้ำกัน
+                            unique_key_suffix = f"{row.product_id}_{row.Index}"
+                            
                             with st.popover("⚡ Sell", use_container_width=True):
-                                actual_p = st.number_input("Sold Price", value=float(row.sell_price), key=f"p_{row.product_id}")
-                                if st.button("Confirm", key=f"b_{row.product_id}", type="primary"):
-                                    df_prod.loc[df_prod['product_id'] == row.product_id, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
+                                actual_p = st.number_input("Sold Price", value=float(row.sell_price), key=f"p_{unique_key_suffix}")
+                                if st.button("Confirm", key=f"b_{unique_key_suffix}", type="primary"):
+                                    # อัปเดตสถานะสินค้า
+                                    df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
                                     save_data(df_prod, "products")
                                     st.toast(f"Sold {row.name}!")
                                     st.rerun()
         else:
             st.info("Stock is empty. Go to 'Add Item' tab.")
+
     
     # --- TAB: ADD ITEM ---
     with tab_add:
