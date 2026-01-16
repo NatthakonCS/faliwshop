@@ -4,118 +4,10 @@ import pandas as pd
 import base64
 from io import BytesIO
 from datetime import datetime
-from PIL import Image, ImageOps, ImageDraw, ImageFont 
-import qrcode
-# ไม่ต้อง import promptpay แล้ว เพราะเราจะฝังเครื่องมือไว้ข้างล่างนี้
+from PIL import Image, ImageOps
 
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
-
-# --- 🛠️ 1. เครื่องมือสร้าง PromptPay (ฝังในไฟล์เลย หายห่วง) ---
-def qrop(account_id, amount):
-    # 1.1 จัดการเบอร์โทร (08x -> 00668x)
-    target = str(account_id).replace("-", "").replace(" ", "").strip()
-    if len(target) == 10 and target.startswith("0"):
-        target = "0066" + target[1:]
-    
-    # 1.2 สร้างรหัสมาตรฐาน (TLV)
-    data = [
-        "000201", "010211",
-        f"29370016A000000677010111011300{target}",
-        "5802TH", "5303764"
-    ]
-    
-    # 1.3 ใส่ยอดเงิน
-    if amount:
-        amt_str = f"{float(amount):.2f}"
-        data.append(f"54{len(amt_str):02}{amt_str}")
-    
-    # 1.4 คำนวณ Checksum
-    raw_data = "".join(data) + "6304"
-    crc = 0xFFFF
-    for char in raw_data:
-        crc ^= ord(char) << 8
-        for _ in range(8):
-            if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
-            else: crc <<= 1
-    
-    return raw_data + f"{crc & 0xFFFF:04X}"
-
-# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (ฉบับสมบูรณ์ที่สุด) ---
-def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
-    width, height = 500, 800
-    img = Image.new('RGB', (width, height), color='white')
-    d = ImageDraw.Draw(img)
-    
-    # --- ตั้งค่าฟอนต์ (มีระบบสำรองกัน Error) ---
-    try:
-        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-        font_header = ImageFont.truetype(font_path, 40)
-        font_text = ImageFont.truetype(font_reg, 24)
-        font_price = ImageFont.truetype(font_path, 50)
-        font_small = ImageFont.truetype(font_reg, 18)
-    except:
-        font_header = ImageFont.load_default()
-        font_text = ImageFont.load_default()
-        font_price = ImageFont.load_default()
-        font_small = ImageFont.load_default()
-
-    # Helper จัดกึ่งกลาง
-    def draw_centered_text(y, text, font, fill="black"):
-        bbox = d.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        x = (width - text_width) // 2
-        d.text((x, y), text, font=font, fill=fill)
-
-    # --- วาดข้อความ ---
-    current_y = 50
-    draw_centered_text(current_y, "RECEIPT", font_header)
-    current_y += 60
-    draw_centered_text(current_y, shop_name, font_text)
-    
-    current_y += 40
-    d.line((50, current_y, width-50, current_y), fill="black", width=3)
-    current_y += 40
-    
-    d.text((50, current_y), f"Date: {date_str}", font=font_text, fill="black")
-    current_y += 50
-    d.text((50, current_y), f"Item: {item_name}", font=font_text, fill="black")
-    current_y += 80
-    
-    draw_centered_text(current_y, "TOTAL AMOUNT", font_text)
-    current_y += 50
-    draw_centered_text(current_y, f"{price:,.0f} THB", font_price)
-    
-    current_y += 80
-    d.line((50, current_y, width-50, current_y), fill="black", width=3)
-    current_y += 40
-    
-    # --- 3. สร้าง QR Code ---
-    my_promptpay_id = "0845833256" # 👈 อย่าลืมแก้เบอร์ตรงนี้เป็นเบอร์ฟิวนะครับ!!!
-    
-    # เรียกใช้เครื่องมือ qrop ที่เราฝังไว้ข้างบน
-    payload = qrop(my_promptpay_id, price)
-    
-    # สร้าง QR
-    qr = qrcode.QRCode(version=1, box_size=8, border=4)
-    qr.add_data(payload)
-    qr.make(fit=True)
-    
-    # ✅ แปลงเป็น RGB เพื่อกัน Error (แก้บั๊ก ValueError ให้แล้ว)
-    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-    
-    # แปะรูป
-    qr_w, qr_h = qr_img.size
-    qr_x = (width - qr_w) // 2
-    img.paste(qr_img, (qr_x, current_y))
-    
-    draw_centered_text(current_y + qr_h + 10, "Scan to Pay", font_small)
-    
-    
-    return img
-
-# --- 👇 ส่วนต่อไปคือ st.set_page_config ... (ปล่อยของเดิมไว้ได้เลย) ---
 
 # --- Setup หน้าเว็บ ---
 st.set_page_config(page_title="HIGHCLASS", layout="wide")
@@ -287,36 +179,6 @@ elif selected == "Transactions":
     # === PAGE: INVENTORY ===
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
-    
-    # --- 🧾 แก้ไข: สร้างฟังก์ชันโชว์ใบเสร็จ (ต้องเขียนแบบนี้) ---
-    @st.dialog("🧾 Payment Receipt")
-    def show_receipt_modal():
-        st.image(st.session_state['last_receipt'], caption="Save รูปนี้ส่งให้ลูกค้าได้เลยครับ", use_container_width=True)
-        
-        # แปลงรูปเพื่อเตรียมดาวน์โหลด
-        buf = BytesIO()
-        st.session_state['last_receipt'].save(buf, format="JPEG")
-        byte_im = buf.getvalue()
-        
-        col1, col2 = st.columns(2)
-        # ปุ่มดาวน์โหลด
-        col1.download_button(
-            label="⬇️ Download",
-            data=byte_im,
-            file_name=st.session_state['last_receipt_name'],
-            mime="image/jpeg",
-            type="primary"
-        )
-        # ปุ่มปิด
-        if col2.button("Close"):
-            del st.session_state['last_receipt'] # ลบใบเสร็จออกจากความจำ
-            st.rerun()
-
-    # เรียกใช้ฟังก์ชันด้านบน ถ้ามีใบเสร็จค้างอยู่
-    if 'last_receipt' in st.session_state:
-        show_receipt_modal()
-    # ----------------------------------------
-
     # ... (ส่วน Tab ข้างล่างปล่อยไว้เหมือนเดิม ไม่ต้องแก้) ...
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
@@ -379,21 +241,11 @@ elif selected == "Inventory":
 
                                     # จุดที่เคย Error คือตรงนี้ครับ (ตอนนี้แก้ให้แล้ว)
                                     if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
-                                        # 1. บันทึก
+                                        # 1. บันทึกข้อมูลลง Google Sheets
                                         df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
                                         save_data(df_prod, "products")
                                         
-                                        # 2. สร้างใบเสร็จ
-                                        receipt_img = create_receipt_image(
-                                            item_name=row.name,
-                                            price=actual_p,
-                                            date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
-                                        )
-                                        
-                                        # 3. เก็บใบเสร็จเพื่อโชว์
-                                        st.session_state['last_receipt'] = receipt_img
-                                        st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
-                                        
+                                        # 2. จบงานเลย ไม่ต้องสร้างรูปแล้ว
                                         st.toast(f"Sold {row.name}!")
                                         st.rerun()
 
