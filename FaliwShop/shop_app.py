@@ -103,7 +103,7 @@ if selected == "Dashboard":
     col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
     col3.metric("📦 Stock Value", f"฿ {stock_val:,.0f}")
 
-# === PAGE: TRANSACTIONS ===
+    # === PAGE: TRANSACTIONS ===
 elif selected == "Transactions":
     st.markdown("### 💸 Income & Expenses")
     with st.form("trans_form", clear_on_submit=True):
