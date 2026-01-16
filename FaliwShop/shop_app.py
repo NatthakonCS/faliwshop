@@ -123,11 +123,11 @@ elif selected == "Transactions":
         st.dataframe(df_trans.sort_index(ascending=False), use_container_width=True, hide_index=True)
 
     # === PAGE: INVENTORY ===
-    elif selected == "Inventory":
+elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
-        # --- TAB: SHOP ---
+    # --- TAB: SHOP ---
     with tab_sell:
         q = st.text_input("Search", placeholder="🔍 ID or Name...", label_visibility="collapsed")
         
@@ -169,7 +169,6 @@ elif selected == "Transactions":
                                     st.rerun()
         else:
             st.info("Stock is empty. Go to 'Add Item' tab.")
-
     
     # --- TAB: ADD ITEM ---
     with tab_add:
