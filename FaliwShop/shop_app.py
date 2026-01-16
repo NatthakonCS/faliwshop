@@ -8,7 +8,7 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 # --- Setup หน้าเว็บ ---
-st.set_page_config(page_title="HIGHCLASS", layout="wide")
+st.set_page_config(page_title="HIGHCLASS", layout="wide", page_icon="✨")
 
 # --- 🔐 SYSTEM: LOGIN ---
 if 'logged_in' not in st.session_state:
@@ -29,7 +29,10 @@ def check_login():
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        st.markdown("<h2 style='text-align: center;'>🔐 HIGHCLASS SHOP</h2>", unsafe_allow_html=True)
+        # โชว์โลโก้ในหน้า Login ด้วย (ถ้ามี)
+        try: st.image("logo.png", width=150)
+        except: st.markdown("<h2 style='text-align: center;'>🔐 HIGHCLASS SHOP</h2>", unsafe_allow_html=True)
+        
         with st.form("login_form"):
             user = st.text_input("Username", placeholder="User")
             pwd = st.text_input("Password", type="password", placeholder="Password")
@@ -55,7 +58,7 @@ if not st.session_state.logged_in:
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1a452nupXAJ_wLEJIE3NOd1bAJTqerphJfqUUhelq1ZY/edit?usp=sharing"
 conn = st.connection("gsheets", type=GSheetsConnection)
 
-# --- CSS ---
+# --- CSS & Theme ---
 st.markdown("""
 <style>
     .block-container { padding-top: 1.5rem; padding-bottom: 3rem; }
@@ -87,15 +90,23 @@ def image_to_base64(pil_img):
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/jpeg;base64,{img_str}"
 
-# --- Sidebar ---
+# --- Sidebar (ใส่ Logo ตรงนี้) ---
 with st.sidebar:
-    st.markdown("## 🛍️ HIGHCLASS SHOP")
+    # พยายามโหลดรูป logo.png ถ้าไม่มีให้ขึ้นชื่อร้านแทน
+    try:
+        st.image("logo.png", use_container_width=True)
+    except:
+        st.markdown("## 🛍️ HIGHCLASS")
+        st.caption("No logo found (Upload 'logo.png')")
+
     selected = option_menu(
         menu_title=None,
         options=["Dashboard", "Transactions", "Inventory", "Sold Items"],
         icons=["grid-1x2", "wallet", "box-seam-fill", "bag-check-fill"], 
-        default_index=2,
+        default_index=0,
     )
+    st.divider()
+    st.caption("Designed for Fiw")
 
 # --- Load Data ---
 df_trans = get_data("transactions")
@@ -104,12 +115,13 @@ df_prod = get_data("products")
 if df_trans.empty:
     df_trans = pd.DataFrame(columns=['date', 'type', 'title', 'amount'])
 if df_prod.empty:
-    df_prod = pd.DataFrame(columns=['product_id', 'name', 'image_base64', 'sell_price', 'discount_price', 'cost_price', 'status', 'actual_sold_price', 'sold_date'])
+    df_prod = pd.DataFrame(columns=['product_id', 'name', 'category', 'image_base64', 'sell_price', 'discount_price', 'cost_price', 'status', 'actual_sold_price', 'sold_date'])
 
-# === PAGE: DASHBOARD ===
+# === PAGE: DASHBOARD (เพิ่มกราฟสวยๆ) ===
 if selected == "Dashboard":
-    st.markdown("### 👋 Overview")
+    st.markdown("### 👋 HighClass Dashboard")
     
+    # 1. คำนวณตัวเลข
     if not df_trans.empty:
         inc = df_trans[df_trans['type']=='รายรับ']['amount'].sum()
         exp = df_trans[df_trans['type']=='รายจ่าย']['amount'].sum()
@@ -127,10 +139,38 @@ if selected == "Dashboard":
 
     net_cash = (inc + total_revenue) - (exp + total_stock_cost)
 
+    # 2. แสดงการ์ดตัวเลข
     col1, col2, col3 = st.columns(3)
-    col1.metric("✨ Net Profit (Clothes)", f"฿ {profit_clothes:,.0f}", f"{sold_count} items sold")
+    col1.metric("✨ Net Profit (Clothes)", f"฿ {profit_clothes:,.0f}", f"{sold_count} Sold")
     col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
-    col3.metric("📦 Stock Value (Asset)", f"฿ {stock_val:,.0f}")
+    col3.metric("📦 Stock Value", f"฿ {stock_val:,.0f}")
+    
+    st.divider()
+
+    # 3. แสดงกราฟ (Charts) 📊
+    c_chart1, c_chart2 = st.columns(2)
+    
+    with c_chart1:
+        st.subheader("📊 Stock by Category")
+        if not df_prod.empty:
+            # นับจำนวนสินค้า แบ่งตามหมวดหมู่ (เฉพาะที่มีของอยู่)
+            stock_data = df_prod[df_prod['status']=='Available']['category'].value_counts()
+            if not stock_data.empty:
+                st.bar_chart(stock_data, color="#FF4B4B")
+            else:
+                st.info("No stock data.")
+    
+    with c_chart2:
+        st.subheader("📈 Sales Trend")
+        if not df_prod.empty:
+            sales_data = df_prod[df_prod['status']=='Sold'].copy()
+            if not sales_data.empty and 'sold_date' in sales_data.columns:
+                # แปลงวันที่ให้เป็น Format ที่กราฟอ่านรู้เรื่อง
+                sales_data['sold_date'] = pd.to_datetime(sales_data['sold_date'])
+                daily_sales = sales_data.groupby(sales_data['sold_date'].dt.date)['actual_sold_price'].sum()
+                st.line_chart(daily_sales, color="#00CC96")
+            else:
+                st.info("No sales yet.")
 
 # === PAGE: TRANSACTIONS ===
 elif selected == "Transactions":
@@ -221,21 +261,17 @@ elif selected == "Inventory":
                                     st.markdown("##### 📝 Copy Caption")
                                     st.caption("กดปุ่ม Copy มุมขวาบน 👇")
                                     
-                                    # สร้างข้อความ (แก้ Indent ให้เป๊ะแล้ว)
+                                    # สร้างข้อความ
                                     caption_txt = f"""🔥 {row.name}
-ราคา : {row.sell_price:,.0f}.-
-ไซส์ : (ระบุไซส์) / ยาว (ระบุ)
-✨ สภาพ : 10/10 
-ตำหนิ : -
-                                    
-*CF ให้สิทธิ์คนพร้อมโอนก่อนเท่านั้น*
-*สินค้าตัวว่าง ในไฮไลท์
+📂 Brand: {row.category}
+💵 Price: {row.sell_price:,.0f}.-
+
+📏 Size: (ระบุไซส์) / ยาว (ระบุ)
+✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
 __________________________
-                                    
-🚚 ค่าจัดส่ง40บาท ( ฟรี‼️ โปรเปิดร้าน )
-สินค้าเป็นงานมือสองขอคนรับสภาพได้
-ได้รับสินค้าแล้วไม่รับคืนทุกกรณี
+🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
 📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
+
 #HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
                                     
                                     st.code(caption_txt, language="markdown")
