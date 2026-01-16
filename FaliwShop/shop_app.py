@@ -7,44 +7,79 @@ from PIL import Image, ImageOps
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
-import qrcode # เพิ่มบรรทัดนี้ด้านบนสุดพร้อมเพื่อนๆ
+import qrcode
 from PIL import ImageDraw, ImageFont
+from promptpay import qrop # ดึงความสามารถสร้างพร้อมเพย์มาใช้
 
-# --- ฟังก์ชันสร้างใบเสร็จ (Receipt Generator) ---
+# --- ฟังก์ชันสร้างใบเสร็จ (เวอร์ชันอัปเกรด: ตัวใหญ่ + พร้อมเพย์) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
-    # 1. สร้างกระดาษใบเสร็จสีขาว (กว้าง 400 x สูง 600)
-    width, height = 400, 600
+    width, height = 500, 800 # ขยายกระดาษให้ใหญ่ขึ้นนิดนึง
     img = Image.new('RGB', (width, height), color='white')
     d = ImageDraw.Draw(img)
     
-    # 2. เตรียม QR Code (เช่น ลิงก์ไป IG ร้าน หรือ PromptPay)
-    # ตรงนี้ฟิวใส่ลิงก์ร้านตัวเอง หรือเลขบัญชีได้เลย
-    qr_data = f"0845833256" 
-    qr = qrcode.make(qr_data).resize((200, 200))
+    # --- 1. ตั้งค่าฟอนต์ (Font) ---
+    # พยายามโหลดฟอนต์สวยๆ จากระบบ Linux (Streamlit Cloud)
+    try:
+        # ฟอนต์ตัวหนา (หัวข้อ)
+        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
+        # ฟอนต์ปกติ (เนื้อหา)
+        font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
+        # ฟอนต์ตัวเลขราคา (ใหญ่สะใจ)
+        font_price = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+    except:
+        # ถ้าหาไม่เจอจริงๆ ให้ใช้ Default (แต่มันจะเล็กหน่อยนะ)
+        font_header = ImageFont.load_default()
+        font_text = ImageFont.load_default()
+        font_price = ImageFont.load_default()
+
+    # --- 2. ฟังก์ชันช่วยจัดกึ่งกลาง (Helper) ---
+    def draw_centered_text(y, text, font, fill="black"):
+        bbox = d.textbbox((0, 0), text, font=font)
+        text_width = bbox[2] - bbox[0]
+        x = (width - text_width) // 2
+        d.text((x, y), text, font=font, fill=fill)
+        return bbox[3] - bbox[1] # คืนค่าความสูงของข้อความ
+
+    # --- 3. วาดข้อความ ---
+    current_y = 50
+    draw_centered_text(current_y, "RECEIPT", font_header)
+    current_y += 60
+    draw_centered_text(current_y, shop_name, font_text)
     
-    # 3. วาดข้อความลงกระดาษ (ใช้ Default Font ไปก่อน กันสระลอย)
-    # *หมายเหตุ: บน Cloud อาจจะแสดงภาษาไทยไม่ได้ ถ้าเป็นไปได้ใช้ชื่อสินค้าภาษาอังกฤษจะชัวร์สุด
+    # ขีดเส้นใต้
+    current_y += 40
+    d.line((50, current_y, width-50, current_y), fill="black", width=3)
+    current_y += 40
     
-    # -- ส่วนหัว --
-    d.text((130, 40), "RECEIPT", fill="black") # หัวข้อ
-    d.text((120, 70), shop_name, fill="black")  # ชื่อร้าน
-    d.line((50, 100, 350, 100), fill="black", width=2) # ขีดเส้นใต้
+    # รายละเอียด
+    d.text((50, current_y), f"Date: {date_str}", font=font_text, fill="black")
+    current_y += 50
+    d.text((50, current_y), f"Item: {item_name}", font=font_text, fill="black")
+    current_y += 80
     
-    # -- รายการสินค้า --
-    d.text((50, 140), f"Date: {date_str}", fill="black")
-    d.text((50, 180), f"Item: {item_name}", fill="black")
+    # ราคา
+    draw_centered_text(current_y, "TOTAL AMOUNT", font_text)
+    current_y += 50
+    draw_centered_text(current_y, f"{price:,.0f} THB", font_price) # ราคาตัวเป้งๆ
     
-    # -- ราคา (ตัวใหญ่หน่อย) --
-    d.text((50, 230), "TOTAL PRICE:", fill="black")
-    d.text((150, 260), f"THB {price:,.0f}", fill="black") # ราคา
+    current_y += 80
+    d.line((50, current_y, width-50, current_y), fill="black", width=3)
+    current_y += 40
     
-    d.line((50, 320, 350, 320), fill="black", width=2) # ขีดเส้นคั่น
+    # --- 4. สร้าง PromptPay QR Code ---
+    # 🔴 ใส่เบอร์พร้อมเพย์ของฟิวตรงนี้ (เบอร์โทร หรือ เลขบัตร ปชช)
+    my_promptpay_id = "0845833256" # <--- แก้ตรงนี้!!! (เช่น 0812345678)
     
-    # -- แปะ QR Code --
-    # เอา QR ไปแปะตรงกลางด้านล่าง
-    img.paste(qr, (125, 350))
+    # สร้าง Payload สำหรับจ่ายเงินตามยอดเป๊ะๆ
+    payload = qrop(my_promptpay_id, price) 
+    qr = qrcode.make(payload).resize((250, 250)) # ขยาย QR ให้ใหญ่ขึ้น
     
-    d.text((110, 520), "Thank You!", fill="black")
+    # วาง QR ตรงกึ่งกลาง
+    qr_x = (width - 250) // 2
+    img.paste(qr, (qr_x, current_y))
+    
+    # ข้อความขอบคุณด้านล่างสุด
+    draw_centered_text(height - 80, "Thank You!", font_text)
     
     return img
 
