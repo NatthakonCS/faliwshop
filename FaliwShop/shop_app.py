@@ -1,18 +1,16 @@
-
 import streamlit as st
 import pandas as pd
 import base64
 from io import BytesIO
 from datetime import datetime
 from PIL import Image, ImageOps
-
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 # --- Setup หน้าเว็บ ---
 st.set_page_config(page_title="HIGHCLASS", layout="wide")
 
-# --- 🔐 SYSTEM: LOGIN (วางต่อจาก st.set_page_config) ---
+# --- 🔐 SYSTEM: LOGIN ---
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 
@@ -38,7 +36,7 @@ def check_login():
             submitted = st.form_submit_button("LOGIN", use_container_width=True, type="primary")
             
             if submitted:
-                # ดึงรหัสลับมาจาก Secrets (ตู้เซฟ) โดยตรง
+                # ดึงรหัสลับมาจาก Secrets
                 correct_user = st.secrets["credentials"]["username"]
                 correct_pass = st.secrets["credentials"]["password"]
                 
@@ -51,15 +49,10 @@ def check_login():
 
 if not st.session_state.logged_in:
     check_login()
-    st.stop() # 🛑 สั่งหยุด! ห้ามรันโค้ดบรรทัดล่างถ้ายังไม่ล็อกอิน
+    st.stop()
 
-# --- 👇 โค้ดร้านค้าของเดิม เริ่มทำงานต่อจากตรงนี้ 👇 ---
-
-
-# 🟢 ใส่ URL Google Sheets ของฟิวตรงนี้
+# --- 👇 ส่วนจัดการ Google Sheets ---
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1a452nupXAJ_wLEJIE3NOd1bAJTqerphJfqUUhelq1ZY/edit?usp=sharing"
-
-# เชื่อมต่อ
 conn = st.connection("gsheets", type=GSheetsConnection)
 
 # --- CSS ---
@@ -75,11 +68,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- Helper Functions (ระบบแปลงไฟล์รูป) ---
-
+# --- Helper Functions ---
 def get_data(worksheet_name):
     try:
-        # ttl=0 เพื่อให้ดึงข้อมูลใหม่เสมอ
         df = conn.read(spreadsheet=SHEET_URL, worksheet=worksheet_name, ttl=0)
         return df
     except Exception:
@@ -89,9 +80,8 @@ def save_data(df, worksheet_name):
     conn.update(spreadsheet=SHEET_URL, worksheet=worksheet_name, data=df)
 
 def image_to_base64(pil_img):
-    """แปลงรูปภาพเป็นตัวหนังสือ Base64 เพื่อเก็บใน Google Sheets"""
     pil_img = pil_img.convert('RGB')
-    pil_img.thumbnail((300, 300)) # ย่อรูปให้เบา
+    pil_img.thumbnail((300, 300))
     buffered = BytesIO()
     pil_img.save(buffered, format="JPEG", quality=80)
     img_str = base64.b64encode(buffered.getvalue()).decode()
@@ -102,17 +92,15 @@ with st.sidebar:
     st.markdown("## 🛍️ HIGHCLASS SHOP")
     selected = option_menu(
         menu_title=None,
-        # เพิ่ม "Sold Items" เข้าไปใน options และ icons
         options=["Dashboard", "Transactions", "Inventory", "Sold Items"],
         icons=["grid-1x2", "wallet", "box-seam-fill", "bag-check-fill"], 
-        default_index=0,
+        default_index=2,
     )
 
 # --- Load Data ---
 df_trans = get_data("transactions")
 df_prod = get_data("products")
 
-# สร้างหัวตารางถ้าย้อนกลับมาแล้วว่างเปล่า
 if df_trans.empty:
     df_trans = pd.DataFrame(columns=['date', 'type', 'title', 'amount'])
 if df_prod.empty:
@@ -122,33 +110,21 @@ if df_prod.empty:
 if selected == "Dashboard":
     st.markdown("### 👋 Overview")
     
-    # 1. ดึงข้อมูลรายรับ-รายจ่ายทั่วไป (ค่าน้ำ, ค่าไฟ, ทุนก้อนแรก)
     if not df_trans.empty:
         inc = df_trans[df_trans['type']=='รายรับ']['amount'].sum()
         exp = df_trans[df_trans['type']=='รายจ่าย']['amount'].sum()
     else: inc, exp = 0, 0
 
-    # 2. คำนวณกระแสเงินสดจากสินค้า (เสื้อผ้า)
     if not df_prod.empty:
-        # เงินเข้า (Revenue): ได้จากเสื้อตัวที่ขายออกไปแล้ว
         sold_items = df_prod[df_prod['status']=='Sold']
         total_revenue = sold_items['actual_sold_price'].sum()
-        
-        # เงินออก (Cost of Inventory): คือเงินที่จ่ายไปซื้อเสื้อ "ทุกตัว" (ทั้งที่ขายแล้วและยังอยู่)
-        # นี่คือจุดสำคัญ! ระบบจะหักเงินทุนทันทีที่เรา Add Item เข้าไป
         total_stock_cost = df_prod['cost_price'].sum()
-        
-        # มูลค่าสินค้าที่ยังกองอยู่หลังร้าน (Asset)
         stock_val = df_prod[df_prod['status']=='Available']['cost_price'].sum()
-        
-        # กำไรเฉพาะตัวเสื้อผ้า (ขายได้ - ทุนของตัวที่ขาย)
         profit_clothes = total_revenue - sold_items['cost_price'].sum()
         sold_count = len(sold_items)
     else: 
         total_revenue, total_stock_cost, stock_val, profit_clothes, sold_count = 0, 0, 0, 0, 0
 
-    # 3. สรุปเงินสดคงเหลือ (Real Cash Balance)
-    # สูตร: (เงินทุนก้อนแรก + เงินที่ขายเสื้อได้) - (ค่าใช้จ่ายทั่วไป + เงินที่จ่ายค่าเสื้อไปทั้งหมด)
     net_cash = (inc + total_revenue) - (exp + total_stock_cost)
 
     col1, col2, col3 = st.columns(3)
@@ -156,8 +132,7 @@ if selected == "Dashboard":
     col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
     col3.metric("📦 Stock Value (Asset)", f"฿ {stock_val:,.0f}")
 
-
-    # === PAGE: TRANSACTIONS ===
+# === PAGE: TRANSACTIONS ===
 elif selected == "Transactions":
     st.markdown("### 💸 Income & Expenses")
     with st.form("trans_form", clear_on_submit=True):
@@ -176,17 +151,15 @@ elif selected == "Transactions":
     if not df_trans.empty:
         st.dataframe(df_trans.sort_index(ascending=False), use_container_width=True, hide_index=True)
 
-    # === PAGE: INVENTORY ===
+# === PAGE: INVENTORY ===
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
-    # ... (ส่วน Tab ข้างล่างปล่อยไว้เหมือนเดิม ไม่ต้องแก้) ...
+    
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
     # --- TAB: SHOP ---
     with tab_sell:
-        if 'category' not in df_prod.columns:
-            df_prod['category'] = 'Uncategorized'
-            
+        if 'category' not in df_prod.columns: df_prod['category'] = 'Uncategorized'
         all_cats = ["All"] + sorted(df_prod[df_prod['status']=='Available']['category'].astype(str).unique().tolist())
         
         c_search, c_filter = st.columns([2, 1])
@@ -195,10 +168,7 @@ elif selected == "Inventory":
 
         if not df_prod.empty:
             items = df_prod[df_prod['status'] == 'Available']
-            
-            if cat_filter != "All":
-                items = items[items['category'] == cat_filter]
-
+            if cat_filter != "All": items = items[items['category'] == cat_filter]
             if q:
                 mask = items['product_id'].astype(str).str.contains(q, case=False) | items['name'].str.contains(q, case=False)
                 items = items[mask]
@@ -207,9 +177,6 @@ elif selected == "Inventory":
                 st.info(f"ไม่พบสินค้า")
             
             # Loop แสดงสินค้า
-            # ... (ต่อจากบรรทัด if items.empty: st.info("ไม่พบสินค้า")) ...
-
-            # Loop แสดงสินค้า (ฉบับแก้ปุ่มซ้ำ)
             for i in range(0, len(items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(items.iloc[i:i+2].itertuples()):
@@ -229,13 +196,11 @@ elif selected == "Inventory":
                             c2.markdown(f"📉 Floor: <span style='color:red'>{row.discount_price:,.0f}</span>", unsafe_allow_html=True)
                             st.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
                             
-                            # --- ส่วนปุ่มควบคุม (แก้ใหม่ตรงนี้) ---
                             unique_key_suffix = f"{row.product_id}_{row.Index}"
-                            
-                            # แบ่งเป็น 3 ปุ่ม: ขาย (2ส่วน), ก๊อปปี้ (1ส่วน), แก้ไข (1ส่วน)
+                            # แบ่งปุ่มเป็น 3 ส่วน: ขาย, Copy, แก้ไข
                             b_sell, b_cap, b_edit = st.columns([2, 1, 1])
                             
-                            # 1. ปุ่มขาย (SELL)
+                            # --- 1. ปุ่มขาย (SELL) ---
                             with b_sell:
                                 with st.popover("⚡ Sell", use_container_width=True):
                                     st.markdown(f"Selling: **{row.name}**")
@@ -250,77 +215,25 @@ elif selected == "Inventory":
                                         st.toast(f"Sold {row.name}!")
                                         st.rerun()
 
-                            # 2. ปุ่มแคปชั่น (COPY)
+                            # --- 2. ปุ่มแคปชั่น (COPY) ---
                             with b_cap:
                                 with st.popover("📋", use_container_width=True):
                                     st.markdown("##### 📝 Copy Caption")
                                     st.caption("กดปุ่ม Copy มุมขวาบน 👇")
                                     
-                                    # สร้างข้อความ
+                                    # สร้างข้อความ (แก้ Indent ให้เป๊ะแล้ว)
                                     caption_txt = f"""🔥 {row.name}
-                                    📂 Brand: {row.category}
-                                    💵 Price: {row.sell_price:,.0f}.-
-                                    
-                                    📏 Size: (ระบุไซส์) / ยาว (ระบุ)
-                                    ✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
-                                    __________________________
-                                    🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
-                                    📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
-                                    
-                                    #HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
-                                    
-                                    st.code(caption_txt, language="markdown")
-
-                            # 3. ปุ่มแก้ไข (EDIT)
-                            with b_edit:
-                                with st.popover("✏️", use_container_width=True):
-                                    st.markdown(f"**Edit: {row.name}**")
-                                    # เช็กตรงนี้: key ต้องไม่ซ้ำ
-                                    with st.form(key=f"edit_form_{unique_key_suffix}"):
-                                        e_name = st.text_input("Name", value=row.name)
-                                        e_cat = st.text_input("Category", value=row.category)
-                                        ec1, ec2, ec3 = st.columns(3)
-                                        e_cost = ec1.number_input("Cost", value=float(row.cost_price))
-                                        e_sell = ec2.number_input("Sell", value=float(row.sell_price))
-                                        e_floor = ec3.number_input("Floor", value=float(row.discount_price))
-                                        e_img = st.file_uploader("Change Image", type=['png','jpg','jpeg'])
-                                        
-                                        if st.form_submit_button("Save"):
-                                            df_prod.at[row.Index, 'name'] = e_name
-                                            df_prod.at[row.Index, 'category'] = e_cat
-                                            df_prod.at[row.Index, 'cost_price'] = e_cost
-                                            df_prod.at[row.Index, 'sell_price'] = e_sell
-                                            df_prod.at[row.Index, 'discount_price'] = e_floor
-                                            
-                                            if e_img:
-                                                new_image = Image.open(e_img)
-                                                new_image = ImageOps.exif_transpose(new_image)
-                                                df_prod.at[row.Index, 'image_base64'] = image_to_base64(new_image)
-                                            
-                                            save_data(df_prod, "products")
-                                            st.success("Updated!")
-                                            st.rerun()
-
-                            # --- 2. ปุ่มแคปชั่น (CAPTION) [ใหม่! ✨] ---
-                            with b_cap:
-                                with st.popover("📋", use_container_width=True):
-                                    st.markdown("##### 📝 Copy Caption")
-                                    st.caption("กดปุ่ม Copy มุมขวาบนได้เลย 👇")
-                                    
-                                    # สร้างข้อความอัตโนมัติ
-caption_txt = f"""🔥 {row.name}
 📂 Brand: {row.category}
 💵 Price: {row.sell_price:,.0f}.-
-                                    
+
 📏 Size: (ระบุไซส์) / ยาว (ระบุ)
 ✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
 __________________________
 🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
 📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
+
+#HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
                                     
-#HighClass #{row.category.replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
-                                    
-                                    # แสดงเป็นกล่อง Code (มันจะมีปุ่ม Copy ให้เองอัตโนมัติ!)
                                     st.code(caption_txt, language="markdown")
 
                             # --- 3. ปุ่มแก้ไข (EDIT) ---
@@ -334,6 +247,7 @@ __________________________
                                         e_cost = ec1.number_input("Cost", value=float(row.cost_price))
                                         e_sell = ec2.number_input("Sell", value=float(row.sell_price))
                                         e_floor = ec3.number_input("Floor", value=float(row.discount_price))
+                                        e_img = st.file_uploader("Change Image", type=['png','jpg','jpeg'])
                                         
                                         if st.form_submit_button("Save"):
                                             df_prod.at[row.Index, 'name'] = e_name
@@ -341,31 +255,6 @@ __________________________
                                             df_prod.at[row.Index, 'cost_price'] = e_cost
                                             df_prod.at[row.Index, 'sell_price'] = e_sell
                                             df_prod.at[row.Index, 'discount_price'] = e_floor
-                                            save_data(df_prod, "products")
-                                            st.success("Updated!")
-                                            st.rerun()
-
-                            # --- ปุ่มที่ 2: แก้ไข (EDIT) ---
-                            with b_edit:
-                                with st.popover("✏️ Edit", use_container_width=True):
-                                    st.markdown(f"**Edit: {row.name}**")
-                                    with st.form(key=f"edit_form_{unique_key_suffix}"):
-                                        e_name = st.text_input("Name", value=row.name)
-                                        e_cat = st.text_input("Category", value=row.category)
-                                        
-                                        ec1, ec2, ec3 = st.columns(3)
-                                        e_cost = ec1.number_input("Cost", value=float(row.cost_price))
-                                        e_sell = ec2.number_input("Sell", value=float(row.sell_price))
-                                        e_floor = ec3.number_input("Floor", value=float(row.discount_price))
-                                        e_img = st.file_uploader("Change Image", type=['png','jpg','jpeg'])
-                                        
-                                        if st.form_submit_button("Save Changes"):
-                                            df_prod.at[row.Index, 'name'] = e_name
-                                            df_prod.at[row.Index, 'category'] = e_cat
-                                            df_prod.at[row.Index, 'cost_price'] = e_cost
-                                            df_prod.at[row.Index, 'sell_price'] = e_sell
-                                            df_prod.at[row.Index, 'discount_price'] = e_floor
-                                            
                                             if e_img:
                                                 new_image = Image.open(e_img)
                                                 new_image = ImageOps.exif_transpose(new_image)
@@ -422,74 +311,53 @@ __________________________
             else:
                 st.caption("No sales yet.")
                 
-# === PAGE: SOLD ITEMS (เพิ่มระบบดึงของกลับ) ===
+# === PAGE: SOLD ITEMS ===
 elif selected == "Sold Items":
     st.markdown("### ✅ Sold Out Gallery")
-    
-    # กรองเฉพาะสินค้าที่ขายแล้ว
     if not df_prod.empty:
         sold_items = df_prod[df_prod['status'] == 'Sold']
-        
-        # เรียงจากขายล่าสุดก่อน
         if 'sold_date' in sold_items.columns:
             sold_items = sold_items.sort_values(by='sold_date', ascending=False)
 
         if sold_items.empty:
             st.info("ยังไม่มีสินค้าที่ขายออกไป สู้ๆ ครับ! ✌️")
         else:
-            # สรุปยอดรวม
             total_rev = sold_items['actual_sold_price'].sum()
             total_profit = total_rev - sold_items['cost_price'].sum()
             st.metric("🎉 Total Sales Volume", f"฿ {total_rev:,.0f}", f"Profit: ฿ {total_profit:,.0f}")
             st.divider()
 
-            # Loop แสดงสินค้า
             for i in range(0, len(sold_items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(sold_items.iloc[i:i+2].itertuples()):
                     with cols[idx]:
                         with st.container(border=True):
-                            # รูปภาพ
                             if pd.notna(row.image_base64) and str(row.image_base64).startswith('data:image'):
                                 st.image(row.image_base64, use_container_width=True)
                             else:
                                 st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
-                            
-                            # เช็กว่ามีคอลัมน์ category ไหม (กัน Error)
                             cat_show = row.category if 'category' in df_prod.columns else '-'
                             st.caption(f"ID: {row.product_id} | 📂 {cat_show}")
                             
-                            # ข้อมูลการขาย
                             c1, c2 = st.columns(2)
                             c1.markdown(f"💰 Sold: **{row.actual_sold_price:,.0f}**")
-                            
                             profit = row.actual_sold_price - row.cost_price
-                            if profit > 0:
-                                c2.markdown(f"🔥 <span style='color:green'>+{profit:,.0f}</span>", unsafe_allow_html=True)
-                            else:
-                                c2.markdown(f"🔻 <span style='color:red'>{profit:,.0f}</span>", unsafe_allow_html=True)
-                            
+                            if profit > 0: c2.markdown(f"🔥 <span style='color:green'>+{profit:,.0f}</span>", unsafe_allow_html=True)
+                            else: c2.markdown(f"🔻 <span style='color:red'>{profit:,.0f}</span>", unsafe_allow_html=True)
                             st.caption(f"📅 {str(row.sold_date)[:16]}")
                             
-                            # --- 🛠️ ส่วนที่เพิ่มใหม่: ปุ่มดึงของกลับ ---
+                            # ปุ่ม Cancel Sale
                             unique_key_sold = f"restore_{row.product_id}_{row.Index}"
-                            
                             with st.popover("❌ Cancel / Restock", use_container_width=True):
                                 st.markdown(f"ดึง **{row.name}** กลับไปขายใหม่?")
-                                st.caption("⚠️ สินค้าจะกลับไปหน้า Shop และลบยอดขายนี้ออก")
-                                
-                                if st.button("ยืนยันดึงของกลับ", key=unique_key_sold, type="primary"):
-                                    # 1. แก้สถานะกลับเป็น Available
+                                if st.button("ยืนยัน", key=unique_key_sold, type="primary"):
                                     df_prod.at[row.Index, 'status'] = 'Available'
-                                    # 2. ล้างข้อมูลการขายทิ้ง
                                     df_prod.at[row.Index, 'actual_sold_price'] = 0
                                     df_prod.at[row.Index, 'sold_date'] = None
-                                    
-                                    # 3. บันทึกและรีเฟรช
                                     save_data(df_prod, "products")
-                                    st.toast(f"Restored {row.name} to Shop!")
+                                    st.toast(f"Restored {row.name}!")
                                     st.rerun()
     else:
         st.info("No data available.")
