@@ -7,6 +7,47 @@ from PIL import Image, ImageOps
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
+import qrcode # เพิ่มบรรทัดนี้ด้านบนสุดพร้อมเพื่อนๆ
+from PIL import ImageDraw, ImageFont
+
+# --- ฟังก์ชันสร้างใบเสร็จ (Receipt Generator) ---
+def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
+    # 1. สร้างกระดาษใบเสร็จสีขาว (กว้าง 400 x สูง 600)
+    width, height = 400, 600
+    img = Image.new('RGB', (width, height), color='white')
+    d = ImageDraw.Draw(img)
+    
+    # 2. เตรียม QR Code (เช่น ลิงก์ไป IG ร้าน หรือ PromptPay)
+    # ตรงนี้ฟิวใส่ลิงก์ร้านตัวเอง หรือเลขบัญชีได้เลย
+    qr_data = f"https://instagram.com/highclass_shop" 
+    qr = qrcode.make(qr_data).resize((150, 150))
+    
+    # 3. วาดข้อความลงกระดาษ (ใช้ Default Font ไปก่อน กันสระลอย)
+    # *หมายเหตุ: บน Cloud อาจจะแสดงภาษาไทยไม่ได้ ถ้าเป็นไปได้ใช้ชื่อสินค้าภาษาอังกฤษจะชัวร์สุด
+    
+    # -- ส่วนหัว --
+    d.text((130, 40), "RECEIPT", fill="black") # หัวข้อ
+    d.text((120, 70), shop_name, fill="black")  # ชื่อร้าน
+    d.line((50, 100, 350, 100), fill="black", width=2) # ขีดเส้นใต้
+    
+    # -- รายการสินค้า --
+    d.text((50, 140), f"Date: {date_str}", fill="black")
+    d.text((50, 180), f"Item: {item_name}", fill="black")
+    
+    # -- ราคา (ตัวใหญ่หน่อย) --
+    d.text((50, 230), "TOTAL PRICE:", fill="black")
+    d.text((150, 260), f"THB {price:,.0f}", fill="black") # ราคา
+    
+    d.line((50, 320, 350, 320), fill="black", width=2) # ขีดเส้นคั่น
+    
+    # -- แปะ QR Code --
+    # เอา QR ไปแปะตรงกลางด้านล่าง
+    img.paste(qr, (125, 350))
+    
+    d.text((110, 520), "Thank You!", fill="black")
+    
+    return img
+
 # --- Setup หน้าเว็บ ---
 st.set_page_config(page_title="HIGHCLASS", layout="wide")
 
@@ -177,7 +218,34 @@ elif selected == "Transactions":
     # === PAGE: INVENTORY ===
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
+    
+    # --- 🧾 ส่วนโชว์ใบเสร็จ (วางตรงนี้!) ---
+    if 'last_receipt' in st.session_state:
+        with st.dialog("🧾 Payment Receipt"):
+            st.image(st.session_state['last_receipt'], caption="Save รูปนี้ส่งให้ลูกค้าได้เลยครับ", use_container_width=True)
+            
+            # แปลงรูปเพื่อเตรียมดาวน์โหลด
+            buf = BytesIO()
+            st.session_state['last_receipt'].save(buf, format="JPEG")
+            byte_im = buf.getvalue()
+            
+            col1, col2 = st.columns(2)
+            # ปุ่มดาวน์โหลด
+            col1.download_button(
+                label="⬇️ Download",
+                data=byte_im,
+                file_name=st.session_state['last_receipt_name'],
+                mime="image/jpeg",
+                type="primary"
+            )
+            # ปุ่มปิด
+            if col2.button("Close"):
+                del st.session_state['last_receipt'] # ลบใบเสร็จออกจากความจำ
+                st.rerun()
+    # ----------------------------------------
+
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
+    # ... (โค้ด Inventory เดิมต่อจากตรงนี้) ...
     
     # --- TAB: SHOP ---
     with tab_sell:
@@ -278,6 +346,25 @@ elif selected == "Inventory":
                                             save_data(df_prod, "products")
                                             st.success("Updated!")
                                             st.rerun()
+
+                                           if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
+                                    # 1. บันทึกข้อมูลลง Google Sheets ตามปกติ
+                                    df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
+                                    save_data(df_prod, "products")
+                                    
+                                    # 2. สร้างใบเสร็จทันที! 🧾
+                                    receipt_img = create_receipt_image(
+                                        item_name=row.name,
+                                        price=actual_p,
+                                        date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    )
+                                    
+                                    # 3. เก็บใบเสร็จไว้ใน Session State (เพื่อให้มันโชว์หลังรีเฟรช)
+                                    st.session_state['last_receipt'] = receipt_img
+                                    st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
+                                    
+                                    st.toast(f"Sold {row.name} & Receipt Generated!")
+                                    st.rerun()
 
         else:
             st.info("Stock is empty.")
