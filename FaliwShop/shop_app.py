@@ -8,8 +8,44 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 import qrcode
-from PIL import ImageDraw, ImageFont
-from promptpay import qrop # ดึงความสามารถสร้างพร้อมเพย์มาใช้
+# --- โค้ดสร้าง QR Code พร้อมเพย์ (แบบไม่ง้อ Library) ---
+def get_promptpay_payload(number, amount):
+    # 1. ตรวจสอบเบอร์โทร หรือ เลขบัตร
+    target = number.replace("-", "").replace(" ", "")
+    if len(target) == 10: # เบอร์มือถือ
+        target = "0066" + target[1:]
+    
+    # 2. สร้างโครงสร้างข้อมูล PromptPay (TLV)
+    data = [
+        "000201",       # ID 00: Payload Format (01)
+        "010211",       # ID 01: Point of Initiation (11=Static, 12=Dynamic)
+        # ID 29: Merchant Account (Credit Transfer)
+        f"29370016A000000677010111011300{target}", 
+        "5802TH",       # ID 58: Country Code
+        "5303764",      # ID 53: Currency (THB)
+    ]
+    
+    # 3. ใส่ยอดเงิน (ถ้ามี)
+    if amount:
+        amt_str = f"{amount:.2f}"
+        data.append(f"54{len(amt_str):02}{amt_str}")
+    
+    # 4. รวมร่าง
+    raw_data = "".join(data) + "6304" # ต่อท้ายด้วย ID 63 (CRC)
+    
+    # 5. คำนวณ CRC16 (Checksum)
+    crc = 0xFFFF
+    for char in raw_data:
+        crc ^= ord(char) << 8
+        for _ in range(8):
+            if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
+            else: crc <<= 1
+    
+    return raw_data + f"{crc & 0xFFFF:04X}"
+
+# --- แก้ไขฟังก์ชันสร้างใบเสร็จเดิม ---
+# (ให้เปลี่ยนบรรทัด payload = qrop(...) เป็นอันนี้แทน)
+# payload = get_promptpay_payload(my_promptpay_id, price)
 
 # --- ฟังก์ชันสร้างใบเสร็จ (เวอร์ชันอัปเกรด: ตัวใหญ่ + พร้อมเพย์) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
