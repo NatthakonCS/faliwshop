@@ -219,31 +219,36 @@ elif selected == "Transactions":
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
     
-    # --- 🧾 ส่วนโชว์ใบเสร็จ (วางไว้บนสุดของหน้านี้) ---
+    # --- 🧾 แก้ไข: สร้างฟังก์ชันโชว์ใบเสร็จ (ต้องเขียนแบบนี้) ---
+    @st.dialog("🧾 Payment Receipt")
+    def show_receipt_modal():
+        st.image(st.session_state['last_receipt'], caption="Save รูปนี้ส่งให้ลูกค้าได้เลยครับ", use_container_width=True)
+        
+        # แปลงรูปเพื่อเตรียมดาวน์โหลด
+        buf = BytesIO()
+        st.session_state['last_receipt'].save(buf, format="JPEG")
+        byte_im = buf.getvalue()
+        
+        col1, col2 = st.columns(2)
+        # ปุ่มดาวน์โหลด
+        col1.download_button(
+            label="⬇️ Download",
+            data=byte_im,
+            file_name=st.session_state['last_receipt_name'],
+            mime="image/jpeg",
+            type="primary"
+        )
+        # ปุ่มปิด
+        if col2.button("Close"):
+            del st.session_state['last_receipt'] # ลบใบเสร็จออกจากความจำ
+            st.rerun()
+
+    # เรียกใช้ฟังก์ชันด้านบน ถ้ามีใบเสร็จค้างอยู่
     if 'last_receipt' in st.session_state:
-        with st.dialog("🧾 Payment Receipt"):
-            st.image(st.session_state['last_receipt'], caption="Save รูปนี้ส่งให้ลูกค้าได้เลยครับ", use_container_width=True)
-            
-            # แปลงรูปเพื่อเตรียมดาวน์โหลด
-            buf = BytesIO()
-            st.session_state['last_receipt'].save(buf, format="JPEG")
-            byte_im = buf.getvalue()
-            
-            col1, col2 = st.columns(2)
-            # ปุ่มดาวน์โหลด
-            col1.download_button(
-                label="⬇️ Download",
-                data=byte_im,
-                file_name=st.session_state['last_receipt_name'],
-                mime="image/jpeg",
-                type="primary"
-            )
-            # ปุ่มปิด
-            if col2.button("Close"):
-                del st.session_state['last_receipt'] # ลบใบเสร็จออกจากความจำ
-                st.rerun()
+        show_receipt_modal()
     # ----------------------------------------
 
+    # ... (ส่วน Tab ข้างล่างปล่อยไว้เหมือนเดิม ไม่ต้องแก้) ...
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
     # --- TAB: SHOP ---
