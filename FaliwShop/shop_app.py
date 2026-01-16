@@ -91,7 +91,7 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     current_y += 40
     
     # --- 3. สร้าง QR Code ---
-    my_promptpay_id = "08xxxxxxxx" # 👈 อย่าลืมแก้เบอร์ตรงนี้เป็นเบอร์ฟิวนะครับ!!!
+    my_promptpay_id = "0845833256" # 👈 อย่าลืมแก้เบอร์ตรงนี้เป็นเบอร์ฟิวนะครับ!!!
     
     # เรียกใช้เครื่องมือ qrop ที่เราฝังไว้ข้างบน
     payload = qrop(my_promptpay_id, price)
@@ -110,7 +110,7 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     img.paste(qr_img, (qr_x, current_y))
     
     draw_centered_text(current_y + qr_h + 10, "Scan to Pay", font_small)
-    draw_centered_text(height - 60, "Thank You!", font_text)
+    
     
     return img
 
