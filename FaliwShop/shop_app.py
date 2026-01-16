@@ -3,33 +3,40 @@ import pandas as pd
 import base64
 from io import BytesIO
 from datetime import datetime
-from PIL import Image, ImageOps
-from PIL import ImageDraw, ImageFont
+from PIL import Image, ImageOps, ImageDraw, ImageFont
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
-
 import qrcode
 
-# --- ฟังก์ชันสร้าง PromptPay Payload (Standard EMVCo) ---
+# --- 🛠️ 1. ฟังก์ชันสร้าง PromptPay Payload (ฉบับมาตรฐาน 100%) ---
 def qrop(account_id, amount):
-    # 1. จัดการเบอร์โทร (แปลง 08x -> 668x) หรือเลขบัตร
+    # 1.1 จัดการเบอร์โทรให้เป็นฟอร์แมต 0066...
     target = str(account_id).replace("-", "").replace(" ", "").strip()
-    if len(target) == 10 and target.startswith("0"): # เบอร์มือถือ
-        target = "0066" + target[1:]
+    if not target.isdigit(): return "Error: Phone number must be digits"
     
-    # 2. สร้างโครงสร้างข้อมูล PromptPay (TLV)
+    if len(target) == 10 and target.startswith("0"):
+        target = "0066" + target[1:] # แปลง 08x -> 00668x
+    elif len(target) != 13:
+         return "Error: Invalid phone/ID length"
+
+    # 1.2 สร้างโครงสร้างข้อมูล (TLV)
+    # AID (29) ความยาว 37 ตัวอักษรเสมอสำหรับเบอร์มือถือ
+    aid_data = f"0016A000000677010111011300{target}"
+    
     data = [
-        "000201", "010211",
-        f"29370016A000000677010111011300{target}",
-        "5802TH", "5303764"
+        "000201", # 00: Format
+        "010211", # 01: Static QR
+        f"2937{aid_data}", # 29: Merchant info
+        "5802TH", # 58: Country
+        "5303764", # 53: Currency THB
     ]
     
-    # 3. ใส่จำนวนเงิน
+    # 1.3 ใส่จำนวนเงิน (ทศนิยม 2 ตำแหน่งเสมอ)
     if amount:
         amt_str = f"{float(amount):.2f}"
         data.append(f"54{len(amt_str):02}{amt_str}")
     
-    # 4. คำนวณ Checksum (CRC16) เพื่อความถูกต้องเป๊ะๆ
+    # 1.4 คำนวณ Checksum (CRC16)
     raw_data = "".join(data) + "6304"
     crc = 0xFFFF
     for char in raw_data:
@@ -38,33 +45,38 @@ def qrop(account_id, amount):
             if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
             else: crc <<= 1
     
-    # คืนค่าเป็นรหัสพร้อมเพย์
-    return raw_data + f"{crc & 0xFFFF:04X}"
+    return raw_data + f"{crc & 0xFFFF:04X}".upper()
 
-# --- ฟังก์ชันสร้างใบเสร็จ (Receipt Generator) ---
+# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (ฉบับแก้ไขเรื่อง QR เบลอ) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     width, height = 500, 800
     img = Image.new('RGB', (width, height), color='white')
     d = ImageDraw.Draw(img)
     
-    # --- 1. ตั้งค่าฟอนต์ ---
+    # --- ตั้งค่าฟอนต์ ---
     try:
-        font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-        font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-        font_price = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
+        # ใช้ฟอนต์ที่มีในระบบ Cloud เพื่อความสวยงาม
+        font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
+        font_path_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        font_header = ImageFont.truetype(font_path, 40)
+        font_text = ImageFont.truetype(font_path_reg, 24)
+        font_price = ImageFont.truetype(font_path, 50)
+        font_small = ImageFont.truetype(font_path_reg, 18)
     except:
+        # Fallback ถ้าหาไม่เจอ
         font_header = ImageFont.load_default()
         font_text = ImageFont.load_default()
         font_price = ImageFont.load_default()
+        font_small = ImageFont.load_default()
 
-    # Helper function จัดกึ่งกลาง
+    # Helper จัดกึ่งกลาง
     def draw_centered_text(y, text, font, fill="black"):
         bbox = d.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         x = (width - text_width) // 2
         d.text((x, y), text, font=font, fill=fill)
 
-    # --- 2. วาดข้อความ ---
+    # --- วาดข้อความลงใบเสร็จ ---
     current_y = 50
     draw_centered_text(current_y, "RECEIPT", font_header)
     current_y += 60
@@ -87,37 +99,37 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # ... (ส่วนวาด Text ด้านบนเหมือนเดิม) ...
+    # --- 3. สร้าง QR Code (จุดสำคัญที่แก้ไข!) ---
+    my_promptpay_id = "08xxxxxxxx" # 👈 🔴 ใส่เบอร์จริงของฟิวตรงนี้! (ห้ามลืม)
     
-    # --- 3. สร้าง QR Code (ฉบับชัดเป๊ะ สแกนติดชัวร์) ---
-    my_promptpay_id = "0845833256" # 👈 เช็กอีกทีว่าแก้เบอร์หรือยังนะครับ!
-    
-    # 1. เรียกฟังก์ชันสร้างรหัส
     payload = qrop(my_promptpay_id, price)
     
-    # 2. ตั้งค่า QR Code ให้มีความละเอียดสูง + มีขอบขาว
-    qr = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L, # ความละเอียด L สแกนง่ายสุด
-        box_size=10, # ขนาดจุดใหญ่ขึ้น
-        border=2     # 👈 สำคัญ! ต้องมีขอบขาวอย่างน้อย 2-4 หน่วย
-    )
-    qr.add_data(payload)
-    qr.make(fit=True)
+    if "Error" in payload:
+        draw_centered_text(current_y + 50, "QR Generation Error!", font_text, fill="red")
+    else:
+        # ✅ วิธีที่ถูกต้อง: ตั้งค่าขนาดจากต้นทาง (ห้าม Resize ทีหลัง)
+        # box_size=9 จะได้ภาพขนาดประมาณ 260x260 pixel ซึ่งคมชัดที่สุด
+        qr = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_M,
+            box_size=9, # ขนาดจุด (ยิ่งเยอะยิ่งใหญ่)
+            border=4,   # ขอบขาว (ต้องมีอย่างน้อย 4 ช่อง)
+        )
+        qr.add_data(payload)
+        qr.make(fit=True)
+        
+        # สร้างรูป QR ขาว-ดำ คมชัดเป๊ะ
+        qr_img = qr.make_image(fill_color="black", back_color="white")
+        
+        # คำนวณจุดวางกึ่งกลาง
+        qr_w, qr_h = qr_img.size
+        qr_x = (width - qr_w) // 2
+        img.paste(qr_img, (qr_x, current_y))
+        
+        # เพิ่มข้อความใต้ QR
+        draw_centered_text(current_y + qr_h + 10, "Scan to Pay with any Bank App", font_small)
     
-    # 3. สร้างรูป QR (ขาว-ดำ ชัดๆ)
-    qr_img = qr.make_image(fill_color="black", back_color="white")
-    
-    # 4. ย่อขนาดลงหน่อยให้พอดีใบเสร็จ (แต่ยังชัดอยู่)
-    qr_img = qr_img.resize((250, 250))
-    
-    # 5. แปะลงกระดาษ
-    qr_x = (width - 250) // 2
-    img.paste(qr_img, (qr_x, current_y))
-    
-    # ... (ส่วน Thank You ด้านล่างเหมือนเดิม) ...
-    
-
+    draw_centered_text(height - 60, "Thank You!", font_text)
     
     return img
 
