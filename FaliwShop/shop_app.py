@@ -180,15 +180,33 @@ elif selected == "Inventory":
     
     # --- TAB: SHOP ---
     with tab_sell:
-        q = st.text_input("Search", placeholder="🔍 ID or Name...", label_visibility="collapsed")
+        # ตรวจสอบว่ามีคอลัมน์ category หรือยัง ถ้าไม่มีให้สร้างขึ้นมากัน Error
+        if 'category' not in df_prod.columns:
+            df_prod['category'] = 'Uncategorized'
+            
+        # 1. สร้างตัวเลือกหมวดหมู่ (รวมรายชื่อทั้งหมดที่มีในระบบ)
+        all_cats = ["All"] + sorted(df_prod[df_prod['status']=='Available']['category'].astype(str).unique().tolist())
         
+        # จัด Layout: ช่องค้นหา (ซ้าย) + ตัวเลือกหมวดหมู่ (ขวา)
+        c_search, c_filter = st.columns([2, 1])
+        q = c_search.text_input("Search", placeholder="🔍 ID or Name...", label_visibility="collapsed")
+        cat_filter = c_filter.selectbox("📂 Filter by Category", all_cats, label_visibility="collapsed")
+
         if not df_prod.empty:
+            # กรองสินค้าสถานะ Available
             items = df_prod[df_prod['status'] == 'Available']
+            
+            # 2. กรองตามหมวดหมู่ที่เลือก
+            if cat_filter != "All":
+                items = items[items['category'] == cat_filter]
+
+            # 3. กรองตามคำค้นหา (Search)
             if q:
                 mask = items['product_id'].astype(str).str.contains(q, case=False) | items['name'].str.contains(q, case=False)
                 items = items[mask]
 
-            if items.empty: st.caption("No items.")
+            if items.empty: 
+                st.info(f"ไม่พบสินค้าในหมวด '{cat_filter}'")
             
             # Loop แสดงสินค้า
             for i in range(0, len(items), 2):
@@ -196,38 +214,34 @@ elif selected == "Inventory":
                 for idx, row in enumerate(items.iloc[i:i+2].itertuples()):
                     with cols[idx]:
                         with st.container(border=True):
-                            # แสดงรูปจาก Base64 code
+                            # รูปภาพ
                             if pd.notna(row.image_base64) and str(row.image_base64).startswith('data:image'):
                                 st.image(row.image_base64, use_container_width=True)
                             else:
                                 st.markdown("*(No Image)*")
                             
+                            # ชื่อและหมวดหมู่
                             st.markdown(f"**{row.name}**")
+                            st.caption(f"📂 {row.category} | ID: {row.product_id}") # โชว์หมวดหมู่ตรงนี้ด้วย
                             
-                            # --- ส่วนที่เพิ่ม: แสดง Cost และ Floor ---
+                            # ราคา
                             c1, c2 = st.columns(2)
                             c1.markdown(f"🏷️ Sell: **{row.sell_price:,.0f}**")
                             c2.markdown(f"📉 Floor: <span style='color:red'>{row.discount_price:,.0f}</span>", unsafe_allow_html=True)
                             
-                            c3, c4 = st.columns(2)
-                            c3.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
-                            c4.caption(f"ID: {row.product_id}")
-                            # -------------------------------------
-
-                            # สร้าง Key ไม่ให้ซ้ำ
-                            unique_key_suffix = f"{row.product_id}_{row.Index}"
+                            # ต้นทุน
+                            st.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
                             
+                            # ปุ่มขาย
+                            unique_key_suffix = f"{row.product_id}_{row.Index}"
                             with st.popover("⚡ Sell", use_container_width=True):
                                 st.markdown(f"Selling: **{row.name}**")
-                                st.info(f"Capital (Cost): {row.cost_price:,.0f} | Floor Price: {row.discount_price:,.0f}")
+                                st.info(f"Capital: {row.cost_price:,.0f} | Floor: {row.discount_price:,.0f}")
                                 
                                 actual_p = st.number_input("Sold Price", value=float(row.sell_price), key=f"p_{unique_key_suffix}")
                                 
-                                # เตือนถ้าขายต่ำกว่าทุนหรือ Floor
-                                if actual_p < row.cost_price:
-                                    st.warning("⚠️ ขาดทุนนะ (Below Cost)!")
-                                elif actual_p < row.discount_price:
-                                    st.warning("⚠️ ต่ำกว่าราคา Floor!")
+                                if actual_p < row.cost_price: st.warning("⚠️ ขาดทุน (Below Cost)!")
+                                elif actual_p < row.discount_price: st.warning("⚠️ ต่ำกว่า Floor!")
 
                                 if st.button("Confirm Sale", key=f"b_{unique_key_suffix}", type="primary"):
                                     df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
@@ -235,7 +249,7 @@ elif selected == "Inventory":
                                     st.toast(f"Sold {row.name}!")
                                     st.rerun()
         else:
-            st.info("Stock is empty. Go to 'Add Item' tab.")
+            st.info("Stock is empty.")
     
     # --- TAB: ADD ITEM ---
     with tab_add:
@@ -246,25 +260,36 @@ elif selected == "Inventory":
             st.image(image, caption="Preview", width=200)
 
         with st.form("add_prod", clear_on_submit=True):
+            # แถว 1: ID, Name
             c1, c2 = st.columns(2)
             nid = c1.text_input("ID")
             nname = c2.text_input("Name")
-            c3, c4, c5 = st.columns(3)
-            ncost = c3.number_input("Cost", min_value=0.0)
-            nprice = c4.number_input("Sell Price", min_value=0.0)
-            nfloor = c5.number_input("Floor Price", min_value=0.0)
+            
+            # แถว 2: Category (เพิ่มใหม่!), Cost
+            c3, c4 = st.columns(2)
+            # เพิ่มช่องกรอกหมวดหมู่
+            ncat = c3.text_input("Category / Brand", placeholder="e.g. Nike, Polo, Jeans") 
+            ncost = c4.number_input("Cost (ทุน)", min_value=0.0)
+            
+            # แถว 3: Sell, Floor
+            c5, c6 = st.columns(2)
+            nprice = c5.number_input("Sell Price (ขาย)", min_value=0.0)
+            nfloor = c6.number_input("Floor Price (ต่ำสุด)", min_value=0.0)
             
             if st.form_submit_button("Save Item", type="primary"):
                 if nid and nname and uploaded_file:
                     img_str = image_to_base64(image)
+                    # ถ้าไม่ได้กรอกหมวดหมู่ ให้ตั้งเป็น General
+                    final_cat = ncat if ncat else "General" 
+                    
                     new_item = pd.DataFrame([{
-                        'product_id': nid, 'name': nname, 'image_base64': img_str,
+                        'product_id': nid, 'name': nname, 'category': final_cat, 'image_base64': img_str,
                         'sell_price': nprice, 'discount_price': nfloor, 'cost_price': ncost,
                         'status': 'Available', 'actual_sold_price': 0, 'sold_date': None
                     }])
                     updated_stock = pd.concat([df_prod, new_item], ignore_index=True)
                     save_data(updated_stock, "products")
-                    st.success(f"Added {nname}!")
+                    st.success(f"Added {nname} ({final_cat})!")
                     st.rerun()
                 else:
                     st.error("Please fill all fields & upload image.")
@@ -275,6 +300,6 @@ elif selected == "Inventory":
             sold_items = df_prod[df_prod['status']=='Sold']
             if not sold_items.empty:
                 sold_items['profit'] = sold_items['actual_sold_price'] - sold_items['cost_price']
-                st.dataframe(sold_items[['sold_date','name','actual_sold_price','profit']], use_container_width=True, hide_index=True)
+                st.dataframe(sold_items[['sold_date','name','category','actual_sold_price','profit']], use_container_width=True, hide_index=True)
             else:
                 st.caption("No sales yet.")
