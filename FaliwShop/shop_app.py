@@ -9,6 +9,7 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 import qrcode
+from promptpay import qrop
 # --- โค้ดสร้าง QR Code พร้อมเพย์ (แบบไม่ง้อ Library) ---
 def get_promptpay_payload(number, amount):
     # 1. ตรวจสอบเบอร์โทร หรือ เลขบัตร
