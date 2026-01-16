@@ -207,6 +207,9 @@ elif selected == "Inventory":
                 st.info(f"ไม่พบสินค้า")
             
             # Loop แสดงสินค้า
+            # ... (ต่อจากบรรทัด if items.empty: st.info("ไม่พบสินค้า")) ...
+
+            # Loop แสดงสินค้า (ฉบับแก้ปุ่มซ้ำ)
             for i in range(0, len(items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(items.iloc[i:i+2].itertuples()):
@@ -226,22 +229,77 @@ elif selected == "Inventory":
                             c2.markdown(f"📉 Floor: <span style='color:red'>{row.discount_price:,.0f}</span>", unsafe_allow_html=True)
                             st.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
                             
-                            # ปุ่มควบคุม
-                            # ปุ่มควบคุม (แบ่งเป็น 3 ช่อง: ขาย 2 ส่วน, แคปชั่น 1 ส่วน, แก้ไข 1 ส่วน)
+                            # --- ส่วนปุ่มควบคุม (แก้ใหม่ตรงนี้) ---
                             unique_key_suffix = f"{row.product_id}_{row.Index}"
+                            
+                            # แบ่งเป็น 3 ปุ่ม: ขาย (2ส่วน), ก๊อปปี้ (1ส่วน), แก้ไข (1ส่วน)
                             b_sell, b_cap, b_edit = st.columns([2, 1, 1])
                             
-                            # --- 1. ปุ่มขาย (SELL) ---
+                            # 1. ปุ่มขาย (SELL)
                             with b_sell:
                                 with st.popover("⚡ Sell", use_container_width=True):
                                     st.markdown(f"Selling: **{row.name}**")
                                     actual_p = st.number_input("Price", value=float(row.sell_price), key=f"p_{unique_key_suffix}")
                                     
+                                    if actual_p < row.cost_price: st.warning("⚠️ ขาดทุน!")
+                                    elif actual_p < row.discount_price: st.warning("⚠️ ต่ำกว่า Floor!")
+
                                     if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
                                         df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
                                         save_data(df_prod, "products")
                                         st.toast(f"Sold {row.name}!")
                                         st.rerun()
+
+                            # 2. ปุ่มแคปชั่น (COPY)
+                            with b_cap:
+                                with st.popover("📋", use_container_width=True):
+                                    st.markdown("##### 📝 Copy Caption")
+                                    st.caption("กดปุ่ม Copy มุมขวาบน 👇")
+                                    
+                                    # สร้างข้อความ
+                                    caption_txt = f"""🔥 {row.name}
+📂 Brand: {row.category}
+💵 Price: {row.sell_price:,.0f}.-
+
+📏 Size: (ระบุไซส์) / ยาว (ระบุ)
+✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
+__________________________
+🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
+📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
+
+#HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
+                                    
+                                    st.code(caption_txt, language="markdown")
+
+                            # 3. ปุ่มแก้ไข (EDIT)
+                            with b_edit:
+                                with st.popover("✏️", use_container_width=True):
+                                    st.markdown(f"**Edit: {row.name}**")
+                                    # เช็กตรงนี้: key ต้องไม่ซ้ำ
+                                    with st.form(key=f"edit_form_{unique_key_suffix}"):
+                                        e_name = st.text_input("Name", value=row.name)
+                                        e_cat = st.text_input("Category", value=row.category)
+                                        ec1, ec2, ec3 = st.columns(3)
+                                        e_cost = ec1.number_input("Cost", value=float(row.cost_price))
+                                        e_sell = ec2.number_input("Sell", value=float(row.sell_price))
+                                        e_floor = ec3.number_input("Floor", value=float(row.discount_price))
+                                        e_img = st.file_uploader("Change Image", type=['png','jpg','jpeg'])
+                                        
+                                        if st.form_submit_button("Save"):
+                                            df_prod.at[row.Index, 'name'] = e_name
+                                            df_prod.at[row.Index, 'category'] = e_cat
+                                            df_prod.at[row.Index, 'cost_price'] = e_cost
+                                            df_prod.at[row.Index, 'sell_price'] = e_sell
+                                            df_prod.at[row.Index, 'discount_price'] = e_floor
+                                            
+                                            if e_img:
+                                                new_image = Image.open(e_img)
+                                                new_image = ImageOps.exif_transpose(new_image)
+                                                df_prod.at[row.Index, 'image_base64'] = image_to_base64(new_image)
+                                            
+                                            save_data(df_prod, "products")
+                                            st.success("Updated!")
+                                            st.rerun()
 
                             # --- 2. ปุ่มแคปชั่น (CAPTION) [ใหม่! ✨] ---
                             with b_cap:
@@ -250,17 +308,17 @@ elif selected == "Inventory":
                                     st.caption("กดปุ่ม Copy มุมขวาบนได้เลย 👇")
                                     
                                     # สร้างข้อความอัตโนมัติ
-                                    caption_txt = f"""🔥 {row.name}
-                                    📂 Brand: {row.category}
-                                    💵 Price: {row.sell_price:,.0f}.-
+caption_txt = f"""🔥 {row.name}
+📂 Brand: {row.category}
+💵 Price: {row.sell_price:,.0f}.-
                                     
-                                    📏 Size: (ระบุไซส์) / ยาว (ระบุ)
-                                    ✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
-                                    __________________________
-                                    🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
-                                    📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
+📏 Size: (ระบุไซส์) / ยาว (ระบุ)
+✨ Condition: 9.5/10 (ซักรีดหอมพร้อมใส่)
+__________________________
+🚚 ค่าส่ง 50.- (พื้นที่ห่างไกล +20)
+📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
                                     
-                                    #HighClass #{row.category.replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
+#HighClass #{row.category.replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
                                     
                                     # แสดงเป็นกล่อง Code (มันจะมีปุ่ม Copy ให้เองอัตโนมัติ!)
                                     st.code(caption_txt, language="markdown")
