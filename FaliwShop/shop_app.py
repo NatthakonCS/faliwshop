@@ -9,114 +9,95 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 
 import qrcode
-from promptpay import qrop
-# --- โค้ดสร้าง QR Code พร้อมเพย์ (แบบไม่ง้อ Library) ---
+
+# --- ฟังก์ชันสร้าง PromptPay Payload (แบบเขียนเอง ไม่ง้อ Library) ---
 def get_promptpay_payload(number, amount):
-    # 1. ตรวจสอบเบอร์โทร หรือ เลขบัตร
+    # 1. แปลงเบอร์โทร/เลขบัตร
     target = number.replace("-", "").replace(" ", "")
     if len(target) == 10: # เบอร์มือถือ
         target = "0066" + target[1:]
     
-    # 2. สร้างโครงสร้างข้อมูล PromptPay (TLV)
+    # 2. โครงสร้างข้อมูล PromptPay (TLV Standard)
     data = [
-        "000201",       # ID 00: Payload Format (01)
-        "010211",       # ID 01: Point of Initiation (11=Static, 12=Dynamic)
-        # ID 29: Merchant Account (Credit Transfer)
-        f"29370016A000000677010111011300{target}", 
-        "5802TH",       # ID 58: Country Code
-        "5303764",      # ID 53: Currency (THB)
+        "000201",       # 00: Payload Format
+        "010211",       # 01: Point of Initiation (11=Static, 12=Dynamic)
+        f"29370016A000000677010111011300{target}", # 29: Merchant ID
+        "5802TH",       # 58: Country
+        "5303764",      # 53: Currency THB
     ]
     
-    # 3. ใส่ยอดเงิน (ถ้ามี)
+    # 3. ใส่ยอดเงิน
     if amount:
         amt_str = f"{amount:.2f}"
         data.append(f"54{len(amt_str):02}{amt_str}")
     
-    # 4. รวมร่าง
-    raw_data = "".join(data) + "6304" # ต่อท้ายด้วย ID 63 (CRC)
-    
-    # 5. คำนวณ CRC16 (Checksum)
+    # 4. คำนวณ CRC16 checksum
+    raw_data = "".join(data) + "6304"
     crc = 0xFFFF
     for char in raw_data:
         crc ^= ord(char) << 8
         for _ in range(8):
             if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
             else: crc <<= 1
-    
+            
     return raw_data + f"{crc & 0xFFFF:04X}"
 
-# --- แก้ไขฟังก์ชันสร้างใบเสร็จเดิม ---
-# (ให้เปลี่ยนบรรทัด payload = qrop(...) เป็นอันนี้แทน)
-# payload = get_promptpay_payload(my_promptpay_id, price)
-
-# --- ฟังก์ชันสร้างใบเสร็จ (เวอร์ชันอัปเกรด: ตัวใหญ่ + พร้อมเพย์) ---
+# --- ฟังก์ชันสร้างใบเสร็จ (Receipt Generator) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
-    width, height = 500, 800 # ขยายกระดาษให้ใหญ่ขึ้นนิดนึง
+    width, height = 500, 800
     img = Image.new('RGB', (width, height), color='white')
     d = ImageDraw.Draw(img)
     
-    # --- 1. ตั้งค่าฟอนต์ (Font) ---
-    # พยายามโหลดฟอนต์สวยๆ จากระบบ Linux (Streamlit Cloud)
+    # --- 1. ตั้งค่าฟอนต์ ---
     try:
-        # ฟอนต์ตัวหนา (หัวข้อ)
         font_header = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 40)
-        # ฟอนต์ปกติ (เนื้อหา)
         font_text = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 24)
-        # ฟอนต์ตัวเลขราคา (ใหญ่สะใจ)
         font_price = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 50)
     except:
-        # ถ้าหาไม่เจอจริงๆ ให้ใช้ Default (แต่มันจะเล็กหน่อยนะ)
         font_header = ImageFont.load_default()
         font_text = ImageFont.load_default()
         font_price = ImageFont.load_default()
 
-    # --- 2. ฟังก์ชันช่วยจัดกึ่งกลาง (Helper) ---
+    # Helper function จัดกึ่งกลาง
     def draw_centered_text(y, text, font, fill="black"):
         bbox = d.textbbox((0, 0), text, font=font)
         text_width = bbox[2] - bbox[0]
         x = (width - text_width) // 2
         d.text((x, y), text, font=font, fill=fill)
-        return bbox[3] - bbox[1] # คืนค่าความสูงของข้อความ
 
-    # --- 3. วาดข้อความ ---
+    # --- 2. วาดข้อความ ---
     current_y = 50
     draw_centered_text(current_y, "RECEIPT", font_header)
     current_y += 60
     draw_centered_text(current_y, shop_name, font_text)
     
-    # ขีดเส้นใต้
     current_y += 40
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # รายละเอียด
     d.text((50, current_y), f"Date: {date_str}", font=font_text, fill="black")
     current_y += 50
     d.text((50, current_y), f"Item: {item_name}", font=font_text, fill="black")
     current_y += 80
     
-    # ราคา
     draw_centered_text(current_y, "TOTAL AMOUNT", font_text)
     current_y += 50
-    draw_centered_text(current_y, f"{price:,.0f} THB", font_price) # ราคาตัวเป้งๆ
+    draw_centered_text(current_y, f"{price:,.0f} THB", font_price)
     
     current_y += 80
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # --- 4. สร้าง PromptPay QR Code ---
-    # 🔴 ใส่เบอร์พร้อมเพย์ของฟิวตรงนี้ (เบอร์โทร หรือ เลขบัตร ปชช)
-    my_promptpay_id = "0845833256" # <--- แก้ตรงนี้!!! (เช่น 0812345678)
+    # --- 3. สร้าง QR Code (เรียกฟังก์ชันใหม่ของเรา) ---
+    my_promptpay_id = "08xxxxxxxx" # 👈 อย่าลืมแก้เบอร์ตรงนี้นะครับ!
     
-    # สร้าง Payload สำหรับจ่ายเงินตามยอดเป๊ะๆ
-    payload = qrop(my_promptpay_id, price) 
-    qr = qrcode.make(payload).resize((250, 250)) # ขยาย QR ให้ใหญ่ขึ้น
+    # ตรงนี้ครับที่เปลี่ยน!! เรียกใช้ฟังก์ชันที่เราเขียนเองด้านบน
+    payload = get_promptpay_payload(my_promptpay_id, price) 
     
-    # วาง QR ตรงกึ่งกลาง
+    qr = qrcode.make(payload).resize((250, 250))
     qr_x = (width - 250) // 2
     img.paste(qr, (qr_x, current_y))
     
-    # ข้อความขอบคุณด้านล่างสุด
     draw_centered_text(height - 80, "Thank You!", font_text)
     
     return img
