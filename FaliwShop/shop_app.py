@@ -117,7 +117,7 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     
     # ... (ส่วน Thank You ด้านล่างเหมือนเดิม) ...
     
-    draw_centered_text(height - 80, "Thank You!", font_text)
+
     
     return img
 
