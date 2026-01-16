@@ -8,46 +8,7 @@ from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
 import qrcode
 
-# --- 🛠️ 1. ฟังก์ชันสร้าง PromptPay Payload (ฉบับมาตรฐาน 100%) ---
-def qrop(account_id, amount):
-    # 1.1 จัดการเบอร์โทรให้เป็นฟอร์แมต 0066...
-    target = str(account_id).replace("-", "").replace(" ", "").strip()
-    if not target.isdigit(): return "Error: Phone number must be digits"
-    
-    if len(target) == 10 and target.startswith("0"):
-        target = "0066" + target[1:] # แปลง 08x -> 00668x
-    elif len(target) != 13:
-         return "Error: Invalid phone/ID length"
-
-    # 1.2 สร้างโครงสร้างข้อมูล (TLV)
-    # AID (29) ความยาว 37 ตัวอักษรเสมอสำหรับเบอร์มือถือ
-    aid_data = f"0016A000000677010111011300{target}"
-    
-    data = [
-        "000201", # 00: Format
-        "010211", # 01: Static QR
-        f"2937{aid_data}", # 29: Merchant info
-        "5802TH", # 58: Country
-        "5303764", # 53: Currency THB
-    ]
-    
-    # 1.3 ใส่จำนวนเงิน (ทศนิยม 2 ตำแหน่งเสมอ)
-    if amount:
-        amt_str = f"{float(amount):.2f}"
-        data.append(f"54{len(amt_str):02}{amt_str}")
-    
-    # 1.4 คำนวณ Checksum (CRC16)
-    raw_data = "".join(data) + "6304"
-    crc = 0xFFFF
-    for char in raw_data:
-        crc ^= ord(char) << 8
-        for _ in range(8):
-            if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
-            else: crc <<= 1
-    
-    return raw_data + f"{crc & 0xFFFF:04X}".upper()
-
-# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (ฉบับแก้ไขเรื่อง QR เบลอ) ---
+# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (แก้บั๊ก ValueError แล้ว) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     width, height = 500, 800
     img = Image.new('RGB', (width, height), color='white')
@@ -55,7 +16,6 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     
     # --- ตั้งค่าฟอนต์ ---
     try:
-        # ใช้ฟอนต์ที่มีในระบบ Cloud เพื่อความสวยงาม
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
         font_path_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         font_header = ImageFont.truetype(font_path, 40)
@@ -63,7 +23,6 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
         font_price = ImageFont.truetype(font_path, 50)
         font_small = ImageFont.truetype(font_path_reg, 18)
     except:
-        # Fallback ถ้าหาไม่เจอ
         font_header = ImageFont.load_default()
         font_text = ImageFont.load_default()
         font_price = ImageFont.load_default()
@@ -76,7 +35,7 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
         x = (width - text_width) // 2
         d.text((x, y), text, font=font, fill=fill)
 
-    # --- วาดข้อความลงใบเสร็จ ---
+    # --- วาดข้อความ ---
     current_y = 50
     draw_centered_text(current_y, "RECEIPT", font_header)
     current_y += 60
@@ -99,35 +58,33 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # --- 3. สร้าง QR Code (จุดสำคัญที่แก้ไข!) ---
-    my_promptpay_id = "0845833256" # 👈 🔴 ใส่เบอร์จริงของฟิวตรงนี้! (ห้ามลืม)
+    # --- 3. สร้าง QR Code (จุดที่แก้!) ---
+    my_promptpay_id = "0845833256" # 👈 อย่าลืมแก้เบอร์ฟิวตรงนี้นะครับ!!
     
     payload = qrop(my_promptpay_id, price)
     
     if "Error" in payload:
         draw_centered_text(current_y + 50, "QR Generation Error!", font_text, fill="red")
     else:
-        # ✅ วิธีที่ถูกต้อง: ตั้งค่าขนาดจากต้นทาง (ห้าม Resize ทีหลัง)
-        # box_size=9 จะได้ภาพขนาดประมาณ 260x260 pixel ซึ่งคมชัดที่สุด
+        # ตั้งค่า QR (ลด box_size ลงเหลือ 8 เผื่อลายมันเยอะจะได้ไม่ล้นขอบ)
         qr = qrcode.QRCode(
             version=1,
             error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=9, # ขนาดจุด (ยิ่งเยอะยิ่งใหญ่)
-            border=4,   # ขอบขาว (ต้องมีอย่างน้อย 4 ช่อง)
+            box_size=8, 
+            border=4,
         )
         qr.add_data(payload)
         qr.make(fit=True)
         
-        # สร้างรูป QR ขาว-ดำ คมชัดเป๊ะ
-        qr_img = qr.make_image(fill_color="black", back_color="white")
+        # ✅ แก้ไขตรงนี้: เติม .convert('RGB') เพื่อแปลงให้เข้ากับใบเสร็จ
+        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
         
-        # คำนวณจุดวางกึ่งกลาง
+        # แปะรูป
         qr_w, qr_h = qr_img.size
         qr_x = (width - qr_w) // 2
         img.paste(qr_img, (qr_x, current_y))
         
-        # เพิ่มข้อความใต้ QR
-        draw_centered_text(current_y + qr_h + 10, "Scan to Pay with any Bank App", font_small)
+        draw_centered_text(current_y + qr_h + 10, "Scan to Pay", font_small)
     
     draw_centered_text(height - 60, "Thank You!", font_text)
     
