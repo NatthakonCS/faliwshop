@@ -10,6 +10,50 @@ from streamlit_gsheets import GSheetsConnection
 # --- Setup หน้าเว็บ ---
 st.set_page_config(page_title="Faliw Manager", layout="wide")
 
+# --- 🔐 SYSTEM: LOGIN (วางต่อจาก st.set_page_config) ---
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+
+def check_login():
+    st.markdown("""
+        <style>
+            .stTextInput input { text-align: center; }
+            div[data-testid="stForm"] { 
+                border: 2px solid #FF4B4B; 
+                border-radius: 20px; 
+                padding: 30px; 
+                box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            }
+        </style>
+    """, unsafe_allow_html=True)
+    
+    col1, col2, col3 = st.columns([1,2,1])
+    with col2:
+        st.markdown("<h2 style='text-align: center;'>🔐 FALIW SHOP ADMIN</h2>", unsafe_allow_html=True)
+        with st.form("login_form"):
+            user = st.text_input("Username", placeholder="User")
+            pwd = st.text_input("Password", type="password", placeholder="Password")
+            submitted = st.form_submit_button("LOGIN", use_container_width=True, type="primary")
+            
+            if submitted:
+                # ดึงรหัสลับมาจาก Secrets (ตู้เซฟ) โดยตรง
+                correct_user = st.secrets["credentials"]["username"]
+                correct_pass = st.secrets["credentials"]["password"]
+                
+                if user == correct_user and pwd == correct_pass:
+                    st.session_state.logged_in = True
+                    st.toast("Welcome back, Boss! 😎")
+                    st.rerun()
+                else:
+                    st.error("❌ Access Denied!")
+
+if not st.session_state.logged_in:
+    check_login()
+    st.stop() # 🛑 สั่งหยุด! ห้ามรันโค้ดบรรทัดล่างถ้ายังไม่ล็อกอิน
+
+# --- 👇 โค้ดร้านค้าของเดิม เริ่มทำงานต่อจากตรงนี้ 👇 ---
+
+
 # 🟢 ใส่ URL Google Sheets ของฟิวตรงนี้
 SHEET_URL = "https://docs.google.com/spreadsheets/d/1a452nupXAJ_wLEJIE3NOd1bAJTqerphJfqUUhelq1ZY/edit?usp=sharing"
 
