@@ -203,17 +203,33 @@ elif selected == "Inventory":
                                 st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
-                            c1, c2 = st.columns(2)
-                            c1.markdown(f"🏷️ **{row.sell_price:,.0f}**")
-                            c2.caption(f"ID: {row.product_id}")
                             
-                            # สร้าง Key แบบพิเศษ: รหัสสินค้า + เลขลำดับแถว (row.Index) เพื่อไม่ให้ซ้ำกัน
+                            # --- ส่วนที่เพิ่ม: แสดง Cost และ Floor ---
+                            c1, c2 = st.columns(2)
+                            c1.markdown(f"🏷️ Sell: **{row.sell_price:,.0f}**")
+                            c2.markdown(f"📉 Floor: <span style='color:red'>{row.discount_price:,.0f}</span>", unsafe_allow_html=True)
+                            
+                            c3, c4 = st.columns(2)
+                            c3.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
+                            c4.caption(f"ID: {row.product_id}")
+                            # -------------------------------------
+
+                            # สร้าง Key ไม่ให้ซ้ำ
                             unique_key_suffix = f"{row.product_id}_{row.Index}"
                             
                             with st.popover("⚡ Sell", use_container_width=True):
+                                st.markdown(f"Selling: **{row.name}**")
+                                st.info(f"Capital (Cost): {row.cost_price:,.0f} | Floor Price: {row.discount_price:,.0f}")
+                                
                                 actual_p = st.number_input("Sold Price", value=float(row.sell_price), key=f"p_{unique_key_suffix}")
-                                if st.button("Confirm", key=f"b_{unique_key_suffix}", type="primary"):
-                                    # อัปเดตสถานะสินค้า
+                                
+                                # เตือนถ้าขายต่ำกว่าทุนหรือ Floor
+                                if actual_p < row.cost_price:
+                                    st.warning("⚠️ ขาดทุนนะ (Below Cost)!")
+                                elif actual_p < row.discount_price:
+                                    st.warning("⚠️ ต่ำกว่าราคา Floor!")
+
+                                if st.button("Confirm Sale", key=f"b_{unique_key_suffix}", type="primary"):
                                     df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
                                     save_data(df_prod, "products")
                                     st.toast(f"Sold {row.name}!")
@@ -224,8 +240,6 @@ elif selected == "Inventory":
     # --- TAB: ADD ITEM ---
     with tab_add:
         uploaded_file = st.file_uploader("Upload Image", type=['png','jpg','jpeg'])
-        
-        # Preview
         if uploaded_file:
             image = Image.open(uploaded_file)
             image = ImageOps.exif_transpose(image)
@@ -242,9 +256,7 @@ elif selected == "Inventory":
             
             if st.form_submit_button("Save Item", type="primary"):
                 if nid and nname and uploaded_file:
-                    # แปลงรูปเป็น Base64
                     img_str = image_to_base64(image)
-                    
                     new_item = pd.DataFrame([{
                         'product_id': nid, 'name': nname, 'image_base64': img_str,
                         'sell_price': nprice, 'discount_price': nfloor, 'cost_price': ncost,
