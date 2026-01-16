@@ -269,7 +269,7 @@ __________________________
 
 #HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
                                     
-                            st.code(caption_txt, language="markdown")
+                                    st.code(caption_txt, language="markdown")
 
                             # 3. ปุ่มแก้ไข (EDIT)
                             with b_edit:
