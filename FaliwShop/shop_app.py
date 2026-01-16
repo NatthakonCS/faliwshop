@@ -3,25 +3,57 @@ import pandas as pd
 import base64
 from io import BytesIO
 from datetime import datetime
-from PIL import Image, ImageOps, ImageDraw, ImageFont
+from PIL import Image, ImageOps, ImageDraw, ImageFont 
+import qrcode
+# ไม่ต้อง import promptpay แล้ว เพราะเราจะฝังเครื่องมือไว้ข้างล่างนี้
+
 from streamlit_option_menu import option_menu
 from streamlit_gsheets import GSheetsConnection
-import qrcode
 
-# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (แก้บั๊ก ValueError แล้ว) ---
+# --- 🛠️ 1. เครื่องมือสร้าง PromptPay (ฝังในไฟล์เลย หายห่วง) ---
+def qrop(account_id, amount):
+    # 1.1 จัดการเบอร์โทร (08x -> 00668x)
+    target = str(account_id).replace("-", "").replace(" ", "").strip()
+    if len(target) == 10 and target.startswith("0"):
+        target = "0066" + target[1:]
+    
+    # 1.2 สร้างรหัสมาตรฐาน (TLV)
+    data = [
+        "000201", "010211",
+        f"29370016A000000677010111011300{target}",
+        "5802TH", "5303764"
+    ]
+    
+    # 1.3 ใส่ยอดเงิน
+    if amount:
+        amt_str = f"{float(amount):.2f}"
+        data.append(f"54{len(amt_str):02}{amt_str}")
+    
+    # 1.4 คำนวณ Checksum
+    raw_data = "".join(data) + "6304"
+    crc = 0xFFFF
+    for char in raw_data:
+        crc ^= ord(char) << 8
+        for _ in range(8):
+            if (crc & 0x8000): crc = (crc << 1) ^ 0x1021
+            else: crc <<= 1
+    
+    return raw_data + f"{crc & 0xFFFF:04X}"
+
+# --- 🧾 2. ฟังก์ชันสร้างใบเสร็จ (ฉบับสมบูรณ์ที่สุด) ---
 def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     width, height = 500, 800
     img = Image.new('RGB', (width, height), color='white')
     d = ImageDraw.Draw(img)
     
-    # --- ตั้งค่าฟอนต์ ---
+    # --- ตั้งค่าฟอนต์ (มีระบบสำรองกัน Error) ---
     try:
         font_path = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-        font_path_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
+        font_reg = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
         font_header = ImageFont.truetype(font_path, 40)
-        font_text = ImageFont.truetype(font_path_reg, 24)
+        font_text = ImageFont.truetype(font_reg, 24)
         font_price = ImageFont.truetype(font_path, 50)
-        font_small = ImageFont.truetype(font_path_reg, 18)
+        font_small = ImageFont.truetype(font_reg, 18)
     except:
         font_header = ImageFont.load_default()
         font_text = ImageFont.load_default()
@@ -58,37 +90,31 @@ def create_receipt_image(item_name, price, date_str, shop_name="HIGHCLASS"):
     d.line((50, current_y, width-50, current_y), fill="black", width=3)
     current_y += 40
     
-    # --- 3. สร้าง QR Code (จุดที่แก้!) ---
-    my_promptpay_id = "0845833256" # 👈 อย่าลืมแก้เบอร์ฟิวตรงนี้นะครับ!!
+    # --- 3. สร้าง QR Code ---
+    my_promptpay_id = "08xxxxxxxx" # 👈 อย่าลืมแก้เบอร์ตรงนี้เป็นเบอร์ฟิวนะครับ!!!
     
+    # เรียกใช้เครื่องมือ qrop ที่เราฝังไว้ข้างบน
     payload = qrop(my_promptpay_id, price)
     
-    if "Error" in payload:
-        draw_centered_text(current_y + 50, "QR Generation Error!", font_text, fill="red")
-    else:
-        # ตั้งค่า QR (ลด box_size ลงเหลือ 8 เผื่อลายมันเยอะจะได้ไม่ล้นขอบ)
-        qr = qrcode.QRCode(
-            version=1,
-            error_correction=qrcode.constants.ERROR_CORRECT_M,
-            box_size=8, 
-            border=4,
-        )
-        qr.add_data(payload)
-        qr.make(fit=True)
-        
-        # ✅ แก้ไขตรงนี้: เติม .convert('RGB') เพื่อแปลงให้เข้ากับใบเสร็จ
-        qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
-        
-        # แปะรูป
-        qr_w, qr_h = qr_img.size
-        qr_x = (width - qr_w) // 2
-        img.paste(qr_img, (qr_x, current_y))
-        
-        draw_centered_text(current_y + qr_h + 10, "Scan to Pay", font_small)
+    # สร้าง QR
+    qr = qrcode.QRCode(version=1, box_size=8, border=4)
+    qr.add_data(payload)
+    qr.make(fit=True)
     
+    # ✅ แปลงเป็น RGB เพื่อกัน Error (แก้บั๊ก ValueError ให้แล้ว)
+    qr_img = qr.make_image(fill_color="black", back_color="white").convert('RGB')
+    
+    # แปะรูป
+    qr_w, qr_h = qr_img.size
+    qr_x = (width - qr_w) // 2
+    img.paste(qr_img, (qr_x, current_y))
+    
+    draw_centered_text(current_y + qr_h + 10, "Scan to Pay", font_small)
     draw_centered_text(height - 60, "Thank You!", font_text)
     
     return img
+
+# --- 👇 ส่วนต่อไปคือ st.set_page_config ... (ปล่อยของเดิมไว้ได้เลย) ---
 
 # --- Setup หน้าเว็บ ---
 st.set_page_config(page_title="HIGHCLASS", layout="wide")
