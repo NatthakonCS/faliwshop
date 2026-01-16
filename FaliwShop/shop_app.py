@@ -307,10 +307,23 @@ elif selected == "Inventory":
                                     elif actual_p < row.discount_price: st.warning("⚠️ ต่ำกว่า Floor!")
 
                                     if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
-                                        df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
-                                        save_data(df_prod, "products")
-                                        st.toast(f"Sold {row.name}!")
-                                        st.rerun()
+                                    # 1. บันทึกข้อมูลลง Google Sheets ตามปกติ
+                                    df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
+                                    save_data(df_prod, "products")
+                                    
+                                    # 2. สร้างใบเสร็จทันที! (เรียกใช้ฟังก์ชันที่เพิ่งวางไปตอนขั้นตอนที่ 2)
+                                    receipt_img = create_receipt_image(
+                                        item_name=row.name,
+                                        price=actual_p,
+                                        date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    )
+                                    
+                                    # 3. เก็บใบเสร็จไว้ในความจำ (Session State) เพื่อรอเด้งโชว์
+                                    st.session_state['last_receipt'] = receipt_img
+                                    st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
+                                    
+                                    st.toast(f"Sold {row.name} & Receipt Generated!")
+                                    st.rerun()
 
                             # --- ปุ่มที่ 2: แก้ไข (EDIT) ---
                             with b_edit:
@@ -346,25 +359,6 @@ elif selected == "Inventory":
                                             save_data(df_prod, "products")
                                             st.success("Updated!")
                                             st.rerun()
-
-                                           if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
-                                    # 1. บันทึกข้อมูลลง Google Sheets ตามปกติ
-                                    df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
-                                    save_data(df_prod, "products")
-                                    
-                                    # 2. สร้างใบเสร็จทันที! 🧾
-                                    receipt_img = create_receipt_image(
-                                        item_name=row.name,
-                                        price=actual_p,
-                                        date_str=datetime.now().strftime("%Y-%m-%d %H:%M")
-                                    )
-                                    
-                                    # 3. เก็บใบเสร็จไว้ใน Session State (เพื่อให้มันโชว์หลังรีเฟรช)
-                                    st.session_state['last_receipt'] = receipt_img
-                                    st.session_state['last_receipt_name'] = f"Receipt_{row.name}.jpg"
-                                    
-                                    st.toast(f"Sold {row.name} & Receipt Generated!")
-                                    st.rerun()
 
         else:
             st.info("Stock is empty.")
