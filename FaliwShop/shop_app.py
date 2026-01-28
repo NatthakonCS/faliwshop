@@ -117,7 +117,7 @@ if df_trans.empty:
 if df_prod.empty:
     df_prod = pd.DataFrame(columns=['product_id', 'name', 'category', 'image_base64', 'sell_price', 'discount_price', 'cost_price', 'status', 'actual_sold_price', 'sold_date'])
 
-# === PAGE: DASHBOARD (เพิ่มกราฟสวยๆ) ===
+# === PAGE: DASHBOARD (Updated) ===
 if selected == "Dashboard":
     st.markdown("### 👋 HighClass Dashboard")
     
@@ -128,37 +128,68 @@ if selected == "Dashboard":
     else: inc, exp = 0, 0
 
     if not df_prod.empty:
+        # ของที่ขายแล้ว
         sold_items = df_prod[df_prod['status']=='Sold']
-        total_revenue = sold_items['actual_sold_price'].sum()
-        total_stock_cost = df_prod['cost_price'].sum()
-        stock_val = df_prod[df_prod['status']=='Available']['cost_price'].sum()
-        profit_clothes = total_revenue - sold_items['cost_price'].sum()
+        total_revenue = sold_items['actual_sold_price'].sum() # ยอดขายจริง
+        realized_profit = total_revenue - sold_items['cost_price'].sum() # กำไรจริง
         sold_count = len(sold_items)
+
+        # ของที่ยังอยู่ (Available)
+        available_items = df_prod[df_prod['status']=='Available']
+        stock_val = available_items['cost_price'].sum() # ทุนจม (Asset)
+        
+        # --- คำนวณตัวเลขใหม่ที่ฟิวขอ ---
+        potential_revenue = available_items['sell_price'].sum() # ถ้าขายหมดจะได้เงินเท่าไหร่
+        potential_profit = potential_revenue - stock_val        # ถ้าขายหมดจะได้กำไรเท่าไหร่
+        total_investment = df_prod['cost_price'].sum()          # ต้นทุนเสื้อทั้งหมดตั้งแต่วันแรก
+
     else: 
-        total_revenue, total_stock_cost, stock_val, profit_clothes, sold_count = 0, 0, 0, 0, 0
+        total_revenue, stock_val, realized_profit, sold_count = 0, 0, 0, 0
+        potential_revenue, potential_profit, total_investment = 0, 0, 0
 
-    net_cash = (inc + total_revenue) - (exp + total_stock_cost)
+    net_cash = (inc + total_revenue) - (exp + total_investment) # แก้สูตร Net Cash ให้หักทุนทั้งหมด
 
-    # 2. แสดงการ์ดตัวเลข
+    # 2. แสดงผล (แถวที่ 1: สถานะปัจจุบัน)
+    st.markdown("##### ⚡ สถานะปัจจุบัน (Current Status)")
     col1, col2, col3 = st.columns(3)
-    col1.metric("✨ Net Profit (Clothes)", f"฿ {profit_clothes:,.0f}", f"{sold_count} Sold")
-    col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
-    col3.metric("📦 Stock Value", f"฿ {stock_val:,.0f}")
+    col1.metric("✨ Net Profit (กำไรเข้ากระเป๋าแล้ว)", f"฿ {realized_profit:,.0f}", f"{sold_count} Sold")
+    col2.metric("💵 Cash Balance (เงินสดคงเหลือ)", f"฿ {net_cash:,.0f}")
+    col3.metric("📦 Current Stock Cost (ทุนของที่ดองอยู่)", f"฿ {stock_val:,.0f}")
     
+    st.divider() # เส้นคั่นสวยๆ
+
+    # 3. แสดงผล (แถวที่ 2: อนาคตถ้าขายหมด)
+    st.markdown("##### 🔮 อนาคตถ้าขายหมดเกลี้ยง (Future Projection)")
+    c4, c5, c6 = st.columns(3)
+    c4.metric("💰 Expected Revenue (ยอดขายรวมที่รออยู่)", f"฿ {potential_revenue:,.0f}", help="ราคาขายรวมของเสื้อที่เหลือทั้งหมด")
+    c5.metric("🚀 Potential Profit (กำไรที่จะได้เพิ่ม)", f"฿ {potential_profit:,.0f}", help="กำไรส่วนต่างของเสื้อที่เหลือทั้งหมด")
+    c6.metric("🏗️ Total Investment (ทุนซื้อของทั้งหมด)", f"฿ {total_investment:,.0f}", help="ค่าของทุกชิ้นรวมกันตั้งแต่วันแรก")
+
     st.divider()
 
-    # 3. แสดงกราฟ (Charts) 📊
+    # 4. แสดงกราฟ (Charts) 📊
     c_chart1, c_chart2 = st.columns(2)
     
     with c_chart1:
         st.subheader("📊 Stock by Category")
         if not df_prod.empty:
-            # นับจำนวนสินค้า แบ่งตามหมวดหมู่ (เฉพาะที่มีของอยู่)
             stock_data = df_prod[df_prod['status']=='Available']['category'].value_counts()
             if not stock_data.empty:
                 st.bar_chart(stock_data, color="#FF4B4B")
             else:
                 st.info("No stock data.")
+    
+    with c_chart2:
+        st.subheader("📈 Sales Trend")
+        if not df_prod.empty:
+            sales_data = df_prod[df_prod['status']=='Sold'].copy()
+            if not sales_data.empty and 'sold_date' in sales_data.columns:
+                sales_data['sold_date'] = pd.to_datetime(sales_data['sold_date'])
+                daily_sales = sales_data.groupby(sales_data['sold_date'].dt.date)['actual_sold_price'].sum()
+                st.line_chart(daily_sales, color="#00CC96")
+            else:
+                st.info("No sales yet.")
+
     
     with c_chart2:
         st.subheader("📈 Sales Trend")
