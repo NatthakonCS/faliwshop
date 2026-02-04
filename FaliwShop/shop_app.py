@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import base64
+import os
 from io import BytesIO
 from datetime import datetime
 from PIL import Image, ImageOps
@@ -29,8 +30,9 @@ def check_login():
     
     col1, col2, col3 = st.columns([1,2,1])
     with col2:
-        # โชว์โลโก้ในหน้า Login ด้วย (ถ้ามี)
-        try: st.image("FaliwShop/logo.png", width=150)
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        logo_path = os.path.join(current_dir, "logo.png")
+        try: st.image(logo_path, width=150)
         except: st.markdown("<h2 style='text-align: center;'>🔐 HIGHCLASS SHOP</h2>", unsafe_allow_html=True)
         
         with st.form("login_form"):
@@ -39,9 +41,12 @@ def check_login():
             submitted = st.form_submit_button("LOGIN", use_container_width=True, type="primary")
             
             if submitted:
-                # ดึงรหัสลับมาจาก Secrets
-                correct_user = st.secrets["credentials"]["username"]
-                correct_pass = st.secrets["credentials"]["password"]
+                try:
+                    correct_user = st.secrets["credentials"]["username"]
+                    correct_pass = st.secrets["credentials"]["password"]
+                except:
+                    st.error("⚠️ ไม่พบข้อมูล Login ใน Secrets")
+                    st.stop()
                 
                 if user == correct_user and pwd == correct_pass:
                     st.session_state.logged_in = True
@@ -90,19 +95,20 @@ def image_to_base64(pil_img):
     img_str = base64.b64encode(buffered.getvalue()).decode()
     return f"data:image/jpeg;base64,{img_str}"
 
-# --- Sidebar (ใส่ Logo ตรงนี้) ---
+# --- Sidebar ---
 with st.sidebar:
-    # พยายามโหลดรูป logo.png ถ้าไม่มีให้ขึ้นชื่อร้านแทน
-    try:
-        st.image("FaliwShop/logo.png", use_container_width=True)
-    except:
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    logo_path = os.path.join(current_dir, "logo.png")
+    try: st.image(logo_path, use_container_width=True)
+    except: 
         st.markdown("## 🛍️ HIGHCLASS")
-        st.caption("No logo found (Upload 'logo.png')")
+        st.caption("No logo found")
 
+    # เพิ่มเมนู Shipping 🚚
     selected = option_menu(
         menu_title=None,
-        options=["Dashboard", "Transactions", "Inventory", "Sold Items"],
-        icons=["grid-1x2", "wallet", "box-seam-fill", "bag-check-fill"], 
+        options=["Dashboard", "Transactions", "Inventory", "Shipping", "Sold Items"],
+        icons=["grid-1x2", "wallet", "box-seam-fill", "truck", "bag-check-fill"], 
         default_index=0,
     )
     st.divider()
@@ -117,68 +123,66 @@ if df_trans.empty:
 if df_prod.empty:
     df_prod = pd.DataFrame(columns=['product_id', 'name', 'category', 'image_base64', 'sell_price', 'discount_price', 'cost_price', 'status', 'actual_sold_price', 'sold_date'])
 
-# === PAGE: DASHBOARD (Updated) ===
+# ✅ เพิ่มคอลัมน์สำหรับระบบขนส่ง (ถ้ายังไม่มี)
+required_cols = ['shipping_status', 'customer_name', 'customer_address', 'tracking_no']
+for col in required_cols:
+    if col not in df_prod.columns:
+        df_prod[col] = None
+
+# === PAGE: DASHBOARD ===
 if selected == "Dashboard":
     st.markdown("### 👋 HighClass Dashboard")
     
-    # 1. คำนวณตัวเลข
     if not df_trans.empty:
         inc = df_trans[df_trans['type']=='รายรับ']['amount'].sum()
         exp = df_trans[df_trans['type']=='รายจ่าย']['amount'].sum()
     else: inc, exp = 0, 0
 
     if not df_prod.empty:
-        # ของที่ขายแล้ว
         sold_items = df_prod[df_prod['status']=='Sold']
-        total_revenue = sold_items['actual_sold_price'].sum() # ยอดขายจริง
-        realized_profit = total_revenue - sold_items['cost_price'].sum() # กำไรจริง
+        total_revenue = sold_items['actual_sold_price'].sum()
+        realized_profit = total_revenue - sold_items['cost_price'].sum()
         sold_count = len(sold_items)
-
-        # ของที่ยังอยู่ (Available)
-        available_items = df_prod[df_prod['status']=='Available']
-        stock_val = available_items['cost_price'].sum() # ทุนจม (Asset)
         
-        # --- คำนวณตัวเลขใหม่ที่ฟิวขอ ---
-        potential_revenue = available_items['sell_price'].sum() # ถ้าขายหมดจะได้เงินเท่าไหร่
-        potential_profit = potential_revenue - stock_val        # ถ้าขายหมดจะได้กำไรเท่าไหร่
-        total_investment = df_prod['cost_price'].sum()          # ต้นทุนเสื้อทั้งหมดตั้งแต่วันแรก
+        # นับจำนวนที่ต้องส่ง
+        to_ship_count = len(sold_items[sold_items['shipping_status'] != 'Shipped'])
 
+        available_items = df_prod[df_prod['status']=='Available']
+        stock_val = available_items['cost_price'].sum()
+        
+        potential_revenue = available_items['sell_price'].sum()
+        potential_profit = potential_revenue - stock_val
+        total_investment = df_prod['cost_price'].sum()
     else: 
-        total_revenue, stock_val, realized_profit, sold_count = 0, 0, 0, 0
+        total_revenue, stock_val, realized_profit, sold_count, to_ship_count = 0, 0, 0, 0, 0
         potential_revenue, potential_profit, total_investment = 0, 0, 0
 
-    net_cash = (inc + total_revenue) - (exp + total_investment) # แก้สูตร Net Cash ให้หักทุนทั้งหมด
+    net_cash = (inc + total_revenue) - (exp + total_investment)
 
-    # 2. แสดงผล (แถวที่ 1: สถานะปัจจุบัน)
     st.markdown("##### ⚡ สถานะปัจจุบัน (Current Status)")
-    col1, col2, col3 = st.columns(3)
-    col1.metric("✨ Net Profit (กำไรเข้ากระเป๋าแล้ว)", f"฿ {realized_profit:,.0f}", f"{sold_count} Sold")
-    col2.metric("💵 Cash Balance (เงินสดคงเหลือ)", f"฿ {net_cash:,.0f}")
-    col3.metric("📦 Current Stock Cost (ทุนของที่ดองอยู่)", f"฿ {stock_val:,.0f}")
+    col1, col2, col3, col4 = st.columns(4) # เพิ่มช่องแจ้งเตือนส่งของ
+    col1.metric("✨ Net Profit", f"฿ {realized_profit:,.0f}", f"{sold_count} Sold")
+    col2.metric("💵 Cash Balance", f"฿ {net_cash:,.0f}")
+    col3.metric("📦 Stock Cost", f"฿ {stock_val:,.0f}")
+    col4.metric("🚚 To Ship (ต้องส่ง)", f"{to_ship_count} ชิ้น", delta_color="inverse")
     
-    st.divider() # เส้นคั่นสวยๆ
-
-    # 3. แสดงผล (แถวที่ 2: อนาคตถ้าขายหมด)
-    st.markdown("##### 🔮 อนาคตถ้าขายหมดเกลี้ยง (Future Projection)")
-    c4, c5, c6 = st.columns(3)
-    c4.metric("💰 Expected Revenue (ยอดขายรวมที่รออยู่)", f"฿ {potential_revenue:,.0f}", help="ราคาขายรวมของเสื้อที่เหลือทั้งหมด")
-    c5.metric("🚀 Potential Profit (กำไรที่จะได้เพิ่ม)", f"฿ {potential_profit:,.0f}", help="กำไรส่วนต่างของเสื้อที่เหลือทั้งหมด")
-    c6.metric("🏗️ Total Investment (ทุนซื้อของทั้งหมด)", f"฿ {total_investment:,.0f}", help="ค่าของทุกชิ้นรวมกันตั้งแต่วันแรก")
-
     st.divider()
 
-    # 4. แสดงกราฟ (Charts) 📊
-    c_chart1, c_chart2 = st.columns(2)
+    st.markdown("##### 🔮 อนาคตถ้าขายหมดเกลี้ยง (Future Projection)")
+    c4, c5, c6 = st.columns(3)
+    c4.metric("💰 Expected Revenue", f"฿ {potential_revenue:,.0f}")
+    c5.metric("🚀 Potential Profit", f"฿ {potential_profit:,.0f}")
+    c6.metric("🏗️ Total Investment", f"฿ {total_investment:,.0f}")
+
+    st.divider()
     
+    c_chart1, c_chart2 = st.columns(2)
     with c_chart1:
         st.subheader("📊 Stock by Category")
         if not df_prod.empty:
             stock_data = df_prod[df_prod['status']=='Available']['category'].value_counts()
-            if not stock_data.empty:
-                st.bar_chart(stock_data, color="#FF4B4B")
-            else:
-                st.info("No stock data.")
-    
+            if not stock_data.empty: st.bar_chart(stock_data, color="#FF4B4B")
+            else: st.info("No stock data.")
     with c_chart2:
         st.subheader("📈 Sales Trend")
         if not df_prod.empty:
@@ -187,21 +191,7 @@ if selected == "Dashboard":
                 sales_data['sold_date'] = pd.to_datetime(sales_data['sold_date'])
                 daily_sales = sales_data.groupby(sales_data['sold_date'].dt.date)['actual_sold_price'].sum()
                 st.line_chart(daily_sales, color="#00CC96")
-            else:
-                st.info("No sales yet.")
-
-    
-    with c_chart2:
-        st.subheader("📈 Sales Trend")
-        if not df_prod.empty:
-            sales_data = df_prod[df_prod['status']=='Sold'].copy()
-            if not sales_data.empty and 'sold_date' in sales_data.columns:
-                # แปลงวันที่ให้เป็น Format ที่กราฟอ่านรู้เรื่อง
-                sales_data['sold_date'] = pd.to_datetime(sales_data['sold_date'])
-                daily_sales = sales_data.groupby(sales_data['sold_date'].dt.date)['actual_sold_price'].sum()
-                st.line_chart(daily_sales, color="#00CC96")
-            else:
-                st.info("No sales yet.")
+            else: st.info("No sales yet.")
 
 # === PAGE: TRANSACTIONS ===
 elif selected == "Transactions":
@@ -225,10 +215,8 @@ elif selected == "Transactions":
 # === PAGE: INVENTORY ===
 elif selected == "Inventory":
     st.markdown("### 👕 Stock Management")
-    
     tab_sell, tab_add, tab_hist = st.tabs(["🛍️ Shop", "➕ Add Item", "📊 Sales Log"])
     
-    # --- TAB: SHOP ---
     with tab_sell:
         if 'category' not in df_prod.columns: df_prod['category'] = 'Uncategorized'
         all_cats = ["All"] + sorted(df_prod[df_prod['status']=='Available']['category'].astype(str).unique().tolist())
@@ -244,20 +232,16 @@ elif selected == "Inventory":
                 mask = items['product_id'].astype(str).str.contains(q, case=False) | items['name'].str.contains(q, case=False)
                 items = items[mask]
 
-            if items.empty: 
-                st.info(f"ไม่พบสินค้า")
+            if items.empty: st.info(f"ไม่พบสินค้า")
             
-            # Loop แสดงสินค้า
             for i in range(0, len(items), 2):
                 cols = st.columns(2)
                 for idx, row in enumerate(items.iloc[i:i+2].itertuples()):
                     with cols[idx]:
                         with st.container(border=True):
-                            # รูปภาพ
                             if pd.notna(row.image_base64) and str(row.image_base64).startswith('data:image'):
                                 st.image(row.image_base64, use_container_width=True)
-                            else:
-                                st.markdown("*(No Image)*")
+                            else: st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
                             st.caption(f"📂 {row.category} | ID: {row.product_id}")
@@ -268,31 +252,24 @@ elif selected == "Inventory":
                             st.markdown(f"🏭 Cost: `{row.cost_price:,.0f}`")
                             
                             unique_key_suffix = f"{row.product_id}_{row.Index}"
-                            # แบ่งปุ่มเป็น 3 ส่วน: ขาย, Copy, แก้ไข
                             b_sell, b_cap, b_edit = st.columns([2, 1, 1])
                             
-                            # --- 1. ปุ่มขาย (SELL) ---
                             with b_sell:
                                 with st.popover("⚡ Sell", use_container_width=True):
                                     st.markdown(f"Selling: **{row.name}**")
                                     actual_p = st.number_input("Price", value=float(row.sell_price), key=f"p_{unique_key_suffix}")
                                     
-                                    if actual_p < row.cost_price: st.warning("⚠️ ขาดทุน!")
-                                    elif actual_p < row.discount_price: st.warning("⚠️ ต่ำกว่า Floor!")
-
                                     if st.button("Confirm", key=f"b_sell_{unique_key_suffix}", type="primary"):
+                                        # บันทึกขาย และตั้งสถานะส่งเป็น Pending
                                         df_prod.loc[row.Index, ['status','actual_sold_price','sold_date']] = ['Sold', actual_p, str(datetime.now())]
+                                        df_prod.loc[row.Index, 'shipping_status'] = 'Pending' # รอส่ง
                                         save_data(df_prod, "products")
-                                        st.toast(f"Sold {row.name}!")
+                                        st.toast(f"Sold! ไปที่เมนู Shipping เพื่อกรอกที่อยู่ 🚚")
                                         st.rerun()
 
-                            # --- 2. ปุ่มแคปชั่น (COPY) ---
                             with b_cap:
                                 with st.popover("📋", use_container_width=True):
                                     st.markdown("##### 📝 Copy Caption")
-                                    st.caption("กดปุ่ม Copy มุมขวาบน 👇")
-                                    
-                                    # สร้างข้อความ
                                     caption_txt = f"""🔥 {row.name}
 📂 Brand: {row.category}
 💵 Price: {row.sell_price:,.0f}.-
@@ -304,10 +281,8 @@ __________________________
 📩 สนใจทัก DM หรือพิมพ์จองได้เลยครับ
 
 #HighClass #{str(row.category).replace(" ", "")} #เสื้อผ้ามือสอง #VintageStyle"""
-                                    
                                     st.code(caption_txt, language="markdown")
 
-                            # --- 3. ปุ่มแก้ไข (EDIT) ---
                             with b_edit:
                                 with st.popover("✏️", use_container_width=True):
                                     st.markdown(f"**Edit: {row.name}**")
@@ -330,14 +305,11 @@ __________________________
                                                 new_image = Image.open(e_img)
                                                 new_image = ImageOps.exif_transpose(new_image)
                                                 df_prod.at[row.Index, 'image_base64'] = image_to_base64(new_image)
-                                            
                                             save_data(df_prod, "products")
                                             st.success("Updated!")
                                             st.rerun()
-        else:
-            st.info("Stock is empty.")
+        else: st.info("Stock is empty.")
     
-    # --- TAB: ADD ITEM ---
     with tab_add:
         uploaded_file = st.file_uploader("Upload Image", type=['png','jpg','jpeg'])
         if uploaded_file:
@@ -363,25 +335,86 @@ __________________________
                     new_item = pd.DataFrame([{
                         'product_id': nid, 'name': nname, 'category': final_cat, 'image_base64': img_str,
                         'sell_price': nprice, 'discount_price': nfloor, 'cost_price': ncost,
-                        'status': 'Available', 'actual_sold_price': 0, 'sold_date': None
+                        'status': 'Available', 'actual_sold_price': 0, 'sold_date': None,
+                        'shipping_status': None, 'customer_name': None, 'customer_address': None, 'tracking_no': None
                     }])
                     updated_stock = pd.concat([df_prod, new_item], ignore_index=True)
                     save_data(updated_stock, "products")
                     st.success(f"Added {nname}!")
                     st.rerun()
-                else:
-                    st.error("Please fill all fields & upload image.")
+                else: st.error("Please fill all fields & upload image.")
 
-    # --- TAB: HISTORY ---
     with tab_hist:
         if not df_prod.empty:
             sold_items = df_prod[df_prod['status']=='Sold']
             if not sold_items.empty:
                 sold_items['profit'] = sold_items['actual_sold_price'] - sold_items['cost_price']
                 st.dataframe(sold_items[['sold_date','name','category','actual_sold_price','profit']], use_container_width=True, hide_index=True)
-            else:
-                st.caption("No sales yet.")
-                
+            else: st.caption("No sales yet.")
+
+# === 🚚 PAGE: SHIPPING (ระบบใหม่!) ===
+elif selected == "Shipping":
+    st.markdown("### 🚚 Delivery Center")
+    
+    # แยกแท็บ: ต้องส่ง vs ส่งแล้ว
+    tab_to_ship, tab_shipped = st.tabs(["📦 To Ship (ต้องส่ง)", "✅ Shipped History (ส่งแล้ว)"])
+
+    # --- TAB 1: รายการที่ต้องส่ง (ยังไม่ได้ส่ง) ---
+    with tab_to_ship:
+        # กรองสินค้าที่ขายแล้ว แต่สถานะยังไม่ใช่ Shipped
+        pending_items = df_prod[(df_prod['status'] == 'Sold') & (df_prod['shipping_status'] != 'Shipped')]
+        
+        if pending_items.empty:
+            st.success("🎉 เย้! ไม่มีของต้องส่ง (เคลียร์หมดแล้ว)")
+        else:
+            st.info(f"มีสินค้าต้องส่ง {len(pending_items)} รายการ")
+            for idx, row in pending_items.iterrows():
+                with st.expander(f"📦 {row['name']} (Sold: ฿{row['actual_sold_price']:,.0f})", expanded=True):
+                    c_img, c_form = st.columns([1, 3])
+                    
+                    with c_img:
+                        if pd.notna(row['image_base64']):
+                            st.image(row['image_base64'], use_container_width=True)
+                        else: st.write("No Image")
+                    
+                    with c_form:
+                        # ฟอร์มกรอกที่อยู่
+                        with st.form(key=f"ship_form_{row['product_id']}_{idx}"):
+                            c1, c2 = st.columns(2)
+                            cus_name = c1.text_input("ชื่อลูกค้า (Name)", value=row['customer_name'] if pd.notna(row['customer_name']) else "")
+                            track_no = c2.text_input("เลขพัสดุ (Tracking No.)", value=row['tracking_no'] if pd.notna(row['tracking_no']) else "")
+                            cus_addr = st.text_area("ที่อยู่จัดส่ง (Address)", value=row['customer_address'] if pd.notna(row['customer_address']) else "", height=100)
+                            
+                            btn_save = st.form_submit_button("💾 บันทึกข้อมูล & ยืนยันการส่ง (Mark as Shipped)", type="primary")
+                            
+                            if btn_save:
+                                df_prod.at[idx, 'customer_name'] = cus_name
+                                df_prod.at[idx, 'tracking_no'] = track_no
+                                df_prod.at[idx, 'customer_address'] = cus_addr
+                                df_prod.at[idx, 'shipping_status'] = 'Shipped' # เปลี่ยนสถานะเป็นส่งแล้ว
+                                save_data(df_prod, "products")
+                                st.toast(f"Shipping updated for {row['name']}!")
+                                st.rerun()
+
+    # --- TAB 2: ประวัติการส่ง (ส่งแล้ว) ---
+    with tab_shipped:
+        shipped_items = df_prod[df_prod['shipping_status'] == 'Shipped']
+        if shipped_items.empty:
+            st.info("ยังไม่มีรายการที่ส่งแล้ว")
+        else:
+            # โชว์แบบตารางสรุป
+            st.dataframe(
+                shipped_items[['sold_date', 'name', 'customer_name', 'tracking_no', 'customer_address']],
+                use_container_width=True,
+                hide_index=True
+            )
+            st.markdown("---")
+            # โชว์การ์ดเผื่อดูรูป
+            for idx, row in shipped_items.iterrows():
+                with st.expander(f"✅ {row['name']} - {row['customer_name']}"):
+                    st.write(f"**Tracking:** {row['tracking_no']}")
+                    st.write(f"**Address:** {row['customer_address']}")
+
 # === PAGE: SOLD ITEMS ===
 elif selected == "Sold Items":
     st.markdown("### ✅ Sold Out Gallery")
@@ -405,21 +438,20 @@ elif selected == "Sold Items":
                         with st.container(border=True):
                             if pd.notna(row.image_base64) and str(row.image_base64).startswith('data:image'):
                                 st.image(row.image_base64, use_container_width=True)
-                            else:
-                                st.markdown("*(No Image)*")
+                            else: st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
-                            cat_show = row.category if 'category' in df_prod.columns else '-'
-                            st.caption(f"ID: {row.product_id} | 📂 {cat_show}")
+                            # แสดงสถานะส่งของตรงนี้ด้วย
+                            ship_stat = row.shipping_status if pd.notna(row.shipping_status) else "Pending"
+                            color = "green" if ship_stat == "Shipped" else "orange"
+                            st.markdown(f"🚚 Status: <span style='color:{color}'>**{ship_stat}**</span>", unsafe_allow_html=True)
                             
                             c1, c2 = st.columns(2)
                             c1.markdown(f"💰 Sold: **{row.actual_sold_price:,.0f}**")
                             profit = row.actual_sold_price - row.cost_price
                             if profit > 0: c2.markdown(f"🔥 <span style='color:green'>+{profit:,.0f}</span>", unsafe_allow_html=True)
                             else: c2.markdown(f"🔻 <span style='color:red'>{profit:,.0f}</span>", unsafe_allow_html=True)
-                            st.caption(f"📅 {str(row.sold_date)[:16]}")
                             
-                            # ปุ่ม Cancel Sale
                             unique_key_sold = f"restore_{row.product_id}_{row.Index}"
                             with st.popover("❌ Cancel / Restock", use_container_width=True):
                                 st.markdown(f"ดึง **{row.name}** กลับไปขายใหม่?")
@@ -427,8 +459,8 @@ elif selected == "Sold Items":
                                     df_prod.at[row.Index, 'status'] = 'Available'
                                     df_prod.at[row.Index, 'actual_sold_price'] = 0
                                     df_prod.at[row.Index, 'sold_date'] = None
+                                    df_prod.at[row.Index, 'shipping_status'] = None
                                     save_data(df_prod, "products")
                                     st.toast(f"Restored {row.name}!")
                                     st.rerun()
-    else:
-        st.info("No data available.")
+    else: st.info("No data available.")
