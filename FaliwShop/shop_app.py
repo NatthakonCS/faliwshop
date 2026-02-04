@@ -123,8 +123,8 @@ if df_trans.empty:
 if df_prod.empty:
     df_prod = pd.DataFrame(columns=['product_id', 'name', 'category', 'image_base64', 'sell_price', 'discount_price', 'cost_price', 'status', 'actual_sold_price', 'sold_date'])
 
-# ✅ เพิ่มคอลัมน์สำหรับระบบขนส่ง (ถ้ายังไม่มี)
-required_cols = ['shipping_status', 'customer_name', 'customer_address', 'tracking_no']
+# ✅ เพิ่มคอลัมน์ใหม่ (เบอร์โทร) และเช็กคอลัมน์
+required_cols = ['shipping_status', 'customer_name', 'customer_phone', 'customer_address', 'tracking_no']
 for col in required_cols:
     if col not in df_prod.columns:
         df_prod[col] = None
@@ -336,7 +336,7 @@ __________________________
                         'product_id': nid, 'name': nname, 'category': final_cat, 'image_base64': img_str,
                         'sell_price': nprice, 'discount_price': nfloor, 'cost_price': ncost,
                         'status': 'Available', 'actual_sold_price': 0, 'sold_date': None,
-                        'shipping_status': None, 'customer_name': None, 'customer_address': None, 'tracking_no': None
+                        'shipping_status': None, 'customer_name': None, 'customer_phone': None, 'customer_address': None, 'tracking_no': None
                     }])
                     updated_stock = pd.concat([df_prod, new_item], ignore_index=True)
                     save_data(updated_stock, "products")
@@ -361,7 +361,6 @@ elif selected == "Shipping":
 
     # --- TAB 1: รายการที่ต้องส่ง (ยังไม่ได้ส่ง) ---
     with tab_to_ship:
-        # กรองสินค้าที่ขายแล้ว แต่สถานะยังไม่ใช่ Shipped
         pending_items = df_prod[(df_prod['status'] == 'Sold') & (df_prod['shipping_status'] != 'Shipped')]
         
         if pending_items.empty:
@@ -369,32 +368,62 @@ elif selected == "Shipping":
         else:
             st.info(f"มีสินค้าต้องส่ง {len(pending_items)} รายการ")
             for idx, row in pending_items.iterrows():
+                # สร้าง Key ไม่ให้ซ้ำ
+                u_id = f"{row['product_id']}_{idx}"
+                
                 with st.expander(f"📦 {row['name']} (Sold: ฿{row['actual_sold_price']:,.0f})", expanded=True):
-                    c_img, c_form = st.columns([1, 3])
+                    c_img, c_detail = st.columns([1, 3])
                     
                     with c_img:
                         if pd.notna(row['image_base64']):
                             st.image(row['image_base64'], use_container_width=True)
                         else: st.write("No Image")
                     
-                    with c_form:
-                        # ฟอร์มกรอกที่อยู่
-                        with st.form(key=f"ship_form_{row['product_id']}_{idx}"):
+                    with c_detail:
+                        # ----------------------------------------------------
+                        # ส่วนที่ 1: บันทึกข้อมูลลูกค้า (ยังไม่ส่ง)
+                        # ----------------------------------------------------
+                        st.markdown("#### 1. เตรียมพัสดุ (Address Info)")
+                        with st.form(key=f"addr_form_{u_id}"):
                             c1, c2 = st.columns(2)
-                            cus_name = c1.text_input("ชื่อลูกค้า (Name)", value=row['customer_name'] if pd.notna(row['customer_name']) else "")
-                            track_no = c2.text_input("เลขพัสดุ (Tracking No.)", value=row['tracking_no'] if pd.notna(row['tracking_no']) else "")
-                            cus_addr = st.text_area("ที่อยู่จัดส่ง (Address)", value=row['customer_address'] if pd.notna(row['customer_address']) else "", height=100)
+                            # ดึงค่าเดิมมาแสดง (ถ้ามี)
+                            val_name = row['customer_name'] if pd.notna(row['customer_name']) else ""
+                            val_phone = row['customer_phone'] if pd.notna(row['customer_phone']) else ""
+                            val_addr = row['customer_address'] if pd.notna(row['customer_address']) else ""
                             
-                            btn_save = st.form_submit_button("💾 บันทึกข้อมูล & ยืนยันการส่ง (Mark as Shipped)", type="primary")
+                            cus_name = c1.text_input("ชื่อลูกค้า", value=val_name)
+                            cus_phone = c2.text_input("เบอร์โทร", value=val_phone)
+                            cus_addr = st.text_area("ที่อยู่จัดส่ง", value=val_addr, height=80)
                             
-                            if btn_save:
+                            # ปุ่มบันทึกเฉยๆ (ยังไม่ส่ง)
+                            if st.form_submit_button("💾 บันทึกที่อยู่ (Save Info Only)"):
                                 df_prod.at[idx, 'customer_name'] = cus_name
-                                df_prod.at[idx, 'tracking_no'] = track_no
+                                df_prod.at[idx, 'customer_phone'] = cus_phone
                                 df_prod.at[idx, 'customer_address'] = cus_addr
-                                df_prod.at[idx, 'shipping_status'] = 'Shipped' # เปลี่ยนสถานะเป็นส่งแล้ว
                                 save_data(df_prod, "products")
-                                st.toast(f"Shipping updated for {row['name']}!")
+                                st.toast(f"Saved info for {row['name']}")
                                 st.rerun()
+
+                        st.markdown("---")
+
+                        # ----------------------------------------------------
+                        # ส่วนที่ 2: ยืนยันการส่ง (ใส่เลขพัสดุ)
+                        # ----------------------------------------------------
+                        st.markdown("#### 2. จัดส่งแล้ว (Shipped)")
+                        with st.form(key=f"ship_confirm_form_{u_id}"):
+                            val_track = row['tracking_no'] if pd.notna(row['tracking_no']) else ""
+                            track_no = st.text_input("เลขพัสดุ (Tracking No.)", value=val_track, placeholder="ใส่เลขพัสดุเมื่อส่งของแล้ว...")
+                            
+                            # ปุ่มยืนยันส่ง (ย้ายไป History)
+                            if st.form_submit_button("🚚 ยืนยันการจัดส่ง (Mark as Shipped)", type="primary"):
+                                if track_no:
+                                    df_prod.at[idx, 'tracking_no'] = track_no
+                                    df_prod.at[idx, 'shipping_status'] = 'Shipped'
+                                    save_data(df_prod, "products")
+                                    st.toast(f"Shipped {row['name']} successfully! 🎉")
+                                    st.rerun()
+                                else:
+                                    st.warning("⚠️ กรุณาใส่เลขพัสดุก่อนกดส่ง")
 
     # --- TAB 2: ประวัติการส่ง (ส่งแล้ว) ---
     with tab_shipped:
@@ -402,17 +431,16 @@ elif selected == "Shipping":
         if shipped_items.empty:
             st.info("ยังไม่มีรายการที่ส่งแล้ว")
         else:
-            # โชว์แบบตารางสรุป
             st.dataframe(
                 shipped_items[['sold_date', 'name', 'customer_name', 'tracking_no', 'customer_address']],
                 use_container_width=True,
                 hide_index=True
             )
             st.markdown("---")
-            # โชว์การ์ดเผื่อดูรูป
             for idx, row in shipped_items.iterrows():
                 with st.expander(f"✅ {row['name']} - {row['customer_name']}"):
                     st.write(f"**Tracking:** {row['tracking_no']}")
+                    st.write(f"**Phone:** {row['customer_phone']}")
                     st.write(f"**Address:** {row['customer_address']}")
 
 # === PAGE: SOLD ITEMS ===
@@ -441,7 +469,7 @@ elif selected == "Sold Items":
                             else: st.markdown("*(No Image)*")
                             
                             st.markdown(f"**{row.name}**")
-                            # แสดงสถานะส่งของตรงนี้ด้วย
+                            # แสดงสถานะส่งของ
                             ship_stat = row.shipping_status if pd.notna(row.shipping_status) else "Pending"
                             color = "green" if ship_stat == "Shipped" else "orange"
                             st.markdown(f"🚚 Status: <span style='color:{color}'>**{ship_stat}**</span>", unsafe_allow_html=True)
